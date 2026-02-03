@@ -16,11 +16,17 @@ async function iteration() {
   const t0 = performance.now();
 
   // 1. CPU-side processing step (CPU data1 -> CPU data2)
+  let uploadBuffer;
+  if (config.uploadMethod === 'mmap') {
+    uploadBuffer = UploadPool.acquire();
+
+    // Map the memory directly on top of data2Ptr to receive its data.
+    uploadBuffer.mmapMappedRange(CPUPart.memory, CPUPart.data1Ptr, 0, config.numBytes);
+  }
   CPUPart.processImage(frameNum);
   const t1 = performance.now();
 
-  // 2. Upload (CPU 2 -> GPU 1)
-  let poolBufferToRelease;
+  // 2. Upload (CPU data2 -> GPU data1)
   const commandEncoder = device.createCommandEncoder();
   switch (config.uploadMethod) {
     case 'none':
@@ -34,13 +40,16 @@ async function iteration() {
       } break;
     case 'copy':
       {
-        const b = poolBufferToRelease = UploadPool.acquire();
-        new Uint32Array(b.getMappedRange()).set(CPUPart.data2View);
-        b.unmap();
-        commandEncoder.copyBufferToBuffer(b, 0, GPUPart.buffer1, 0, b.size);
+        uploadBuffer = UploadPool.acquire();
+        new Uint32Array(uploadBuffer.getMappedRange()).set(CPUPart.data2View);
+        uploadBuffer.unmap();
+        commandEncoder.copyBufferToBuffer(uploadBuffer, 0, GPUPart.buffer1, 0, uploadBuffer.size);
       } break;
     case 'mmap':
-      throw new Error('unimplemented');
+      {
+        uploadBuffer.unmap();
+        commandEncoder.copyBufferToBuffer(uploadBuffer, 0, GPUPart.buffer1, 0, uploadBuffer.size);
+      } break;
     default:
       throw new Error('??');
   }
@@ -48,10 +57,11 @@ async function iteration() {
 
   // 3. GPU-side processing step (GPU data1 -> GPU data2)
   //    (The output of this step is what's visible.)
+  GPUPart.readbackBuffer.unmap();
   GPUPart.processImage(commandEncoder, frameNum);
   device.queue.submit([commandEncoder.finish()]);
-  if (poolBufferToRelease) {
-    UploadPool.release(poolBufferToRelease);
+  if (uploadBuffer) {
+    UploadPool.release(uploadBuffer);
   }
   await GPUPart.readbackBuffer.mapAsync(GPUMapMode.READ);
   const t3 = performance.now();
@@ -68,11 +78,13 @@ async function iteration() {
         CPUPart.data1View.set(new Uint32Array(GPUPart.readbackBuffer.getMappedRange()));
       } break;
     case 'mmap':
-      throw new Error('unimplemented');
+      {
+        // Map the memory directly on top of data1Ptr to replace its data.
+        GPUPart.readbackBuffer.mmapMappedRange(CPUPart.memory, CPUPart.data1Ptr, 0, config.numBytes);
+      } break;
     default:
       throw new Error('??');
   }
-  GPUPart.readbackBuffer.unmap();
   const t4 = performance.now();
 
   timing.cpuVerticalSlide_cpuTime = t1 - t0;

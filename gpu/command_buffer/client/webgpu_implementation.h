@@ -155,6 +155,9 @@ class WEBGPU_EXPORT WebGPUImplementation final : public WebGPUInterface,
       WGPUDevice device,
       const WGPUTextureDescriptor* optionalDesc = nullptr) override;
   WGPUDevice DeprecatedEnsureDefaultDeviceSync() override;
+  MappedMemoryManager::ShmRegion GetShmRegionForPointer(
+      void* pointer,
+      size_t size) const override;
 
  private:
   const char* GetLogPrefix() const { return "webgpu"; }

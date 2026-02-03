@@ -3,10 +3,6 @@ import { device } from "./util.js";
 
 const availableMappedBuffers = [];
 
-function getBufferSize() {
-  return config.canvasWidth * config.canvasHeight * 4;
-}
-
 export const UploadPool = {
   acquire() {
     if (availableMappedBuffers.length) {
@@ -14,7 +10,7 @@ export const UploadPool = {
     } else {
       return device.createBuffer({
         label: `pool buffer @ ${config.canvasWidth}x${config.canvasHeight}`,
-        size: getBufferSize(),
+        size: config.numBytes,
         usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.MAP_WRITE,
         mappedAtCreation: true,
       });
@@ -23,7 +19,7 @@ export const UploadPool = {
 
   release(b) {
     b.mapAsync(GPUMapMode.WRITE).then(() => {
-      if (b.size === getBufferSize()) {
+      if (b.size === config.numBytes) {
         availableMappedBuffers.push(b);
       } else {
         b.destroy();

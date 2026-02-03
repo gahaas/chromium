@@ -26,6 +26,14 @@ typedef unsigned long long GPUSize64Out;
     [CallWith=ScriptState, RaisesException] ArrayBuffer getMappedRange(
         optional GPUSize64 offset = 0,
         optional GPUSize64 size);
+    // Like getMappedRange, but mmaps the range into a WebAssembly.Memory
+    // instead of wrapping it in an ArrayBuffer.
+    // FIXME: If we want to land this prototype, it needs to be RuntimeEnabled.
+    [CallWith=ScriptState, RaisesException] void mmapMappedRange(
+        any wasmMemory,
+        GPUSize64 wasmMemoryOffset,
+        GPUSize64 bufferOffset,
+        GPUSize64 size);
     [CallWith=Isolate] void unmap();
     [CallWith=Isolate] void destroy();
 

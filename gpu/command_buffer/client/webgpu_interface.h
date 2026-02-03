@@ -12,6 +12,7 @@
 
 #include "base/memory/ref_counted.h"
 #include "gpu/command_buffer/client/interface_base.h"
+#include "gpu/command_buffer/client/mapped_memory.h"
 #include "gpu/command_buffer/common/webgpu_cmd_enums.h"
 #include "gpu/command_buffer/common/webgpu_cmd_ids.h"
 #include "third_party/blink/public/common/tokens/tokens.h"
@@ -170,6 +171,10 @@ class WebGPUInterface : public InterfaceBase {
                                    high >> 32, high & 0xFFFFFFFF, low >> 32,
                                    low & 0xFFFFFFFF);
   }
+
+  virtual MappedMemoryManager::ShmRegion GetShmRegionForPointer(
+      void* pointer,
+      size_t size) const = 0;
 };
 
 }  // namespace webgpu

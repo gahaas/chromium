@@ -7,6 +7,7 @@
 
 #include <optional>
 
+#include "gpu/command_buffer/client/mapped_memory.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/core/typed_arrays/array_buffer_view_helpers.h"
@@ -71,6 +72,12 @@ class GPUBuffer : public DawnObject<wgpu::Buffer> {
                                  uint64_t offset,
                                  uint64_t size,
                                  ExceptionState& exception_state);
+  void mmapMappedRange(ScriptState* script_state,
+                       v8::Local<v8::Value> wasmMemory,
+                       uint64_t wasmMemoryOffset,
+                       uint64_t bufferOffset,
+                       uint64_t size,
+                       ExceptionState& exception_state);
   void unmap(v8::Isolate* isolate);
   void destroy(v8::Isolate* isolate);
   uint64_t size() const;

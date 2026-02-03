@@ -255,7 +255,48 @@ DOMArrayBuffer* GPUBuffer::getMappedRange(ScriptState* script_state,
   return GetMappedRangeImpl(script_state, offset, size, exception_state);
 }
 
+void GPUBuffer::mmapMappedRange(ScriptState* script_state,
+                                v8::Local<v8::Value> wasmMemory,
+                                uint64_t wasmMemoryOffset,
+                                uint64_t bufferOffset,
+                                uint64_t size,
+                                ExceptionState& exception_state) {
+  if (!wasmMemory->IsWasmMemoryObject()) {
+    // TODO(crbug.com/401111547): Couldn't figure out how to refer to
+    // WebAssembly.Memory from WebIDL, so just did this as a hack.
+    exception_state.ThrowTypeError("'memory' must be a WebAssembly.Memory");
+    return;
+  }
+  v8::Local<v8::WasmMemoryObject> memory =
+      wasmMemory.As<v8::WasmMemoryObject>();
+
+  // TODO(crbug.com/401111547): Add the validation from GetMappedRangeImpl.
+  void* mapped_range =
+      const_cast<void*>(GetHandle().GetConstMappedRange(bufferOffset, size));
+  CHECK(mapped_range);
+
+  gpu::webgpu::WebGPUInterface* webgpu =
+      GetContextProviderWeakPtr()->ContextProvider().WebGPUInterface();
+  auto shmRegion = webgpu->GetShmRegionForPointer(mapped_range, size);
+
+  // TODO(crbug.com/401111547): Implement for platforms other than desktop Linux
+  if constexpr (std::is_same_v<base::subtle::PlatformSharedMemoryHandle, int>) {
+    base::subtle::PlatformSharedMemoryHandle handle =
+        shmRegion.shm->GetPlatformHandle();
+    auto mmapDescriptor =
+        v8::WasmMemoryMapDescriptor::New(script_state->GetIsolate(), handle);
+    (void)memory;
+    (void)mmapDescriptor;
+    // FIXME: Do something with this (and also the shmRegion's offset and size!
+    // or if that's not possible then we need to make it so that GPUBuffer
+    // mapped memory is always a whole shm block and not just a suballocation.)
+  } else {
+    CHECK(false) << "Not implemented on this platform";
+  }
+}
+
 void GPUBuffer::unmap(v8::Isolate* isolate) {
+  // FIXME: If the buffer was mmapped into Wasm we need to un-mmap it here.
   ResetMappingState(isolate);
   GetHandle().Unmap();
   if (map_async_future_) {

@@ -168,6 +168,24 @@ void MappedMemoryManager::FreeUnused() {
   }
 }
 
+MappedMemoryManager::ShmRegion MappedMemoryManager::GetShmRegionForPointer(
+    void* pointer,
+    size_t size) const {
+  for (auto& chunk : chunks_) {
+    if (chunk->IsInChunk(pointer)) {
+      uint32_t offset = chunk->GetOffset(pointer);
+      DCHECK_LT(size, std::numeric_limits<uint32_t>::max());
+      DCHECK_LE(offset + static_cast<uint32_t>(size), chunk->GetSize());
+      return ShmRegion{
+          .size = size,
+          .shm = &chunk->shared_memory()->backing()->shared_memory_region(),
+          .offset = offset,
+      };
+    }
+  }
+  NOTREACHED();
+}
+
 bool MappedMemoryManager::OnMemoryDump(
     const base::trace_event::MemoryDumpArgs& args,
     base::trace_event::ProcessMemoryDump* pmd) {

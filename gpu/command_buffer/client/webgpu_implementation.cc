@@ -448,6 +448,12 @@ WGPUDevice WebGPUImplementation::DeprecatedEnsureDefaultDeviceSync() {
   return nullptr;
 }
 
+MappedMemoryManager::ShmRegion WebGPUImplementation::GetShmRegionForPointer(
+    void* pointer,
+    size_t size) const {
+  return mapped_memory_->GetShmRegionForPointer(pointer, size);
+}
+
 void WebGPUImplementation::AssociateMailbox(
     GLuint device_id,
     GLuint device_generation,

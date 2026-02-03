@@ -17,6 +17,8 @@ export const config = {
   pause: false,
   canvasWidth: 4096,
   canvasHeight: 2048,
+  get numPixels() { return this.canvasWidth * this.canvasHeight; },
+  get numBytes() { return this.numPixels * 4; },
   uploadMethod: 'copy',
   downloadMethod: 'copy',
   numSamplesForMean: 200,
