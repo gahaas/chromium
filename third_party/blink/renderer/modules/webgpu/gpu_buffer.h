@@ -72,12 +72,10 @@ class GPUBuffer : public DawnObject<wgpu::Buffer> {
                                  uint64_t offset,
                                  uint64_t size,
                                  ExceptionState& exception_state);
-  void mmapMappedRange(ScriptState* script_state,
-                       v8::Local<v8::Value> wasmMemory,
-                       uint64_t wasmMemoryOffset,
-                       uint64_t bufferOffset,
-                       uint64_t size,
-                       ExceptionState& exception_state);
+  v8::Local<v8::Value> getMMapDescriptor(ScriptState* script_state,
+                                         uint64_t bufferOffset,
+                                         uint64_t size,
+                                         ExceptionState& exception_state);
   void unmap(v8::Isolate* isolate);
   void destroy(v8::Isolate* isolate);
   uint64_t size() const;
@@ -138,6 +136,8 @@ class GPUBuffer : public DawnObject<wgpu::Buffer> {
 
   // Buffer created from a shared image.
   scoped_refptr<WebGPUMailboxBuffer> mailbox_buffer_;
+
+  v8::TracedReference<v8::WasmMemoryMapDescriptor> mmap_descriptor_;
 };
 
 }  // namespace blink

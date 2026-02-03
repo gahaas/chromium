@@ -21,7 +21,8 @@ async function iteration() {
     uploadBuffer = UploadPool.acquire();
 
     // Map the memory directly on top of data2Ptr to receive its data.
-    uploadBuffer.mmapMappedRange(CPUPart.memory, CPUPart.data1Ptr, 0, config.numBytes);
+    let mmapDescriptor = uploadBuffer.getMMapDescriptor(0, config.numBytes);
+    mmapDescriptor.map(CPUPart.memory, CPUPart.data1Ptr);
   }
   CPUPart.processImage(frameNum);
   const t1 = performance.now();

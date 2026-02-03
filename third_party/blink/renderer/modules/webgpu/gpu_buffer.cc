@@ -205,6 +205,7 @@ GPUBuffer::~GPUBuffer() {
 
 void GPUBuffer::Trace(Visitor* visitor) const {
   visitor->Trace(mapped_array_buffers_);
+  visitor->Trace(mmap_descriptor_);
   DawnObject<wgpu::Buffer>::Trace(visitor);
 }
 
@@ -255,21 +256,11 @@ DOMArrayBuffer* GPUBuffer::getMappedRange(ScriptState* script_state,
   return GetMappedRangeImpl(script_state, offset, size, exception_state);
 }
 
-void GPUBuffer::mmapMappedRange(ScriptState* script_state,
-                                v8::Local<v8::Value> wasmMemory,
-                                uint64_t wasmMemoryOffset,
-                                uint64_t bufferOffset,
-                                uint64_t size,
-                                ExceptionState& exception_state) {
-  if (!wasmMemory->IsWasmMemoryObject()) {
-    // TODO(crbug.com/401111547): Couldn't figure out how to refer to
-    // WebAssembly.Memory from WebIDL, so just did this as a hack.
-    exception_state.ThrowTypeError("'memory' must be a WebAssembly.Memory");
-    return;
-  }
-  v8::Local<v8::WasmMemoryObject> memory =
-      wasmMemory.As<v8::WasmMemoryObject>();
-
+v8::Local<v8::Value> GPUBuffer::getMMapDescriptor(
+    ScriptState* script_state,
+    uint64_t bufferOffset,
+    uint64_t size,
+    ExceptionState& exception_state) {
   // TODO(crbug.com/401111547): Add the validation from GetMappedRangeImpl.
   void* mapped_range =
       const_cast<void*>(GetHandle().GetConstMappedRange(bufferOffset, size));
@@ -283,10 +274,11 @@ void GPUBuffer::mmapMappedRange(ScriptState* script_state,
   if constexpr (std::is_same_v<base::subtle::PlatformSharedMemoryHandle, int>) {
     base::subtle::PlatformSharedMemoryHandle handle =
         shmRegion.shm->GetPlatformHandle();
-    auto mmapDescriptor =
-        v8::WasmMemoryMapDescriptor::New(script_state->GetIsolate(), handle);
-    (void)memory;
-    (void)mmapDescriptor;
+
+    auto result =
+        v8::WasmMemoryMapDescriptor::New(script_state->GetIsolate(), handle.fd);
+    mmap_descriptor_.Reset(script_state->GetIsolate(), result);
+    return result;
     // FIXME: Do something with this (and also the shmRegion's offset and size!
     // or if that's not possible then we need to make it so that GPUBuffer
     // mapped memory is always a whole shm block and not just a suballocation.)
@@ -298,7 +290,11 @@ void GPUBuffer::mmapMappedRange(ScriptState* script_state,
 void GPUBuffer::unmap(v8::Isolate* isolate) {
   // FIXME: If the buffer was mmapped into Wasm we need to un-mmap it here.
   ResetMappingState(isolate);
-  GetHandle().Unmap();
+  if (!mmap_descriptor_.IsEmpty()) {
+    mmap_descriptor_.Get(isolate)->Unmap();
+  } else {
+    GetHandle().Unmap();
+  }
   if (map_async_future_) {
     // Since the JS spec's require that the promise be rejected in-line here if
     // we are mapped, we need to do a quick poll on the future, and call
