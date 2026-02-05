@@ -32,7 +32,9 @@ async function iteration() {
   t.push(performance.now());
 
   // 1b. CPU-side processing step (CPU data1 -> CPU data2)
-  CPUPart.processImage(frameNum);
+  if (config.doCPUProcessing) {
+    CPUPart.processImage(frameNum);
+  }
   t.push(performance.now());
 
   // 2a. Unmap readbackBuffer
@@ -71,7 +73,12 @@ async function iteration() {
 
   // 3. GPU-side processing step (GPU data1 -> GPU data2)
   //    (The output of this step is what's visible.)
-  GPUPart.processImage(commandEncoder, frameNum);
+  if (config.doGPUProcessing) {
+    GPUPart.processImage(commandEncoder, frameNum);
+  } else {
+    // Force a data dependency on the resource even if we don't do significant processing.
+    commandEncoder.copyBufferToBuffer(GPUPart.buffer1, 0, GPUPart.buffer2, 0, 4);
+  }
   device.queue.submit([commandEncoder.finish()]);
   if (uploadBuffer) {
     UploadPool.release(uploadBuffer);

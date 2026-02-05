@@ -17,7 +17,9 @@ const liveConfig = {
   pause: false,
   canvasWidth: 4096,
   canvasHeight: 4096,
+  doCPUProcessing: true,
   uploadMethod: 'copy',
+  doGPUProcessing: false,
   downloadMethod: 'copy',
   numSamplesForMean: 200,
 };
@@ -26,6 +28,7 @@ fConfig.on('change', () => needReset = true);
 fConfig.addBinding(liveConfig, 'pause');
 fConfig.addBinding(liveConfig, 'canvasWidth', { min: 4096, max: 8192, step: 4096 });
 fConfig.addBinding(liveConfig, 'canvasHeight', { min: 1, max: 8192, step: 1 });
+fConfig.addBinding(liveConfig, 'doCPUProcessing');
 fConfig.addBinding(liveConfig, 'uploadMethod', {
   options: {
     'none': 'none',
@@ -34,6 +37,7 @@ fConfig.addBinding(liveConfig, 'uploadMethod', {
     'write directly to mmapped mapping': 'mmap',
   },
 });
+fConfig.addBinding(liveConfig, 'doGPUProcessing');
 fConfig.addBinding(liveConfig, 'downloadMethod', {
   options: {
     'none': 'none',
