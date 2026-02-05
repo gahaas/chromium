@@ -318,6 +318,7 @@ v8::Local<v8::Value> GPUBuffer::getMMapDescriptor(
 void GPUBuffer::unmap(v8::Isolate* isolate) {
   if (!mmap_descriptor_.IsEmpty()) {
     mmap_descriptor_.Get(isolate)->Unmap();
+    mmap_descriptor_.Reset();
   }
 
   ResetMappingState(isolate);
@@ -332,7 +333,7 @@ void GPUBuffer::unmap(v8::Isolate* isolate) {
 }
 
 void GPUBuffer::destroy(v8::Isolate* isolate) {
-  ResetMappingState(isolate);
+  this->unmap(isolate);
 
   if (mailbox_buffer_) {
     DissociateMailbox();
@@ -340,13 +341,6 @@ void GPUBuffer::destroy(v8::Isolate* isolate) {
   }
 
   GetHandle().Destroy();
-  if (map_async_future_) {
-    // Since the JS spec's require that the promise be rejected in-line here if
-    // we are mapped, we need to do a quick poll on the future, and call
-    // the callback on it right now.
-    GetInstance().WaitAny(*map_async_future_, 0u);
-  }
-  DCHECK(!map_async_future_);
 
   // Destroyed, so it can never be mapped again. Stop tracking.
   device_->adapter()->gpu()->UntrackMappableBuffer(this);
