@@ -56,7 +56,11 @@ export const fail = (() => {
 
 const adapter = await navigator.gpu.requestAdapter();
 
-export const device = await adapter.requestDevice();
+export const device = await adapter.requestDevice({
+  requiredLimits: {
+    maxStorageBufferBindingSize: 8192 * 8192 * 4,
+  },
+});
 device.lost.then(lostInfo => {
   fail(`Lost device (${lostInfo.reason}): ${lostInfo.message}`);
 });

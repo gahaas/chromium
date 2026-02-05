@@ -13,22 +13,20 @@ fInfo.addBinding(info, 'highPrecisionTimestamps', { readonly: true });
 fInfo.addBinding(info, 'vendor', { readonly: true });
 fInfo.addBinding(info, 'architecture', { readonly: true });
 
-export const config = {
+const liveConfig = {
   pause: false,
   canvasWidth: 4096,
-  canvasHeight: 2048,
-  get numPixels() { return this.canvasWidth * this.canvasHeight; },
-  get numBytes() { return this.numPixels * 4; },
+  canvasHeight: 4096,
   uploadMethod: 'copy',
   downloadMethod: 'copy',
   numSamplesForMean: 200,
 };
 const fConfig = pane.addFolder({ title: 'Configuration' });
 fConfig.on('change', () => needReset = true);
-fConfig.addBinding(config, 'pause');
-fConfig.addBinding(config, 'canvasWidth', { min: 4096, max: 4096, step: 1 });
-fConfig.addBinding(config, 'canvasHeight', { min: 1, max: 4096, step: 1 });
-fConfig.addBinding(config, 'uploadMethod', {
+fConfig.addBinding(liveConfig, 'pause');
+fConfig.addBinding(liveConfig, 'canvasWidth', { min: 4096, max: 8192, step: 4096 });
+fConfig.addBinding(liveConfig, 'canvasHeight', { min: 1, max: 8192, step: 1 });
+fConfig.addBinding(liveConfig, 'uploadMethod', {
   options: {
     'none': 'none',
     'writeTexture from heap': 'write',
@@ -36,14 +34,14 @@ fConfig.addBinding(config, 'uploadMethod', {
     'write directly to mmapped mapping': 'mmap',
   },
 });
-fConfig.addBinding(config, 'downloadMethod', {
+fConfig.addBinding(liveConfig, 'downloadMethod', {
   options: {
     'none': 'none',
     'copy mapping -> heap': 'copy',
     'read directly from mmapped mapping': 'mmap',
   },
 });
-fConfig.addBinding(config, 'numSamplesForMean', { min: 1, max: 1000, step: 1 });
+fConfig.addBinding(liveConfig, 'numSamplesForMean', { min: 1, max: 1000, step: 1 });
 
 export const timing = {
   cpuVerticalSlide_cpuTime: 0,
@@ -64,9 +62,19 @@ fTiming.addBinding(timing, 'iter_time', { readonly: true, view: 'graph' });
 fTiming.addBinding(timing, 'iter_time_mean', { readonly: true, format: v => v.toFixed(6) });
 fTiming.addBinding(timing, 'iter_time_samples', { readonly: true, format: v => v.toFixed(0) });
 
+export const config = {
+  get numPixels() { return this.canvasWidth * this.canvasHeight; },
+  get numBytes() { return this.numPixels * 4; },
+};
+function commitConfig() {
+  Object.assign(config, liveConfig);
+}
+commitConfig();
+
 let needReset = true;
 export function resetIfNeeded(fn) {
   if (needReset) {
+    commitConfig();
     fn();
     needReset = false;
   }
