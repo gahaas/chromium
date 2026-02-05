@@ -173,8 +173,7 @@ class WebGPUInterface : public InterfaceBase {
   }
 
   virtual MappedMemoryManager::ShmRegion GetShmRegionForPointer(
-      void* pointer,
-      size_t size) const = 0;
+      std::span<uint8_t> pointer) const = 0;
 };
 
 }  // namespace webgpu

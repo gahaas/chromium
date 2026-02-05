@@ -245,15 +245,24 @@ ScriptPromise<IDLUndefined> GPUBuffer::mapAsync(
 DOMArrayBuffer* GPUBuffer::getMappedRange(ScriptState* script_state,
                                           uint64_t offset,
                                           ExceptionState& exception_state) {
-  return GetMappedRangeImpl(script_state, offset, std::nullopt,
-                            exception_state);
+  auto map_data =
+      GetMappedRangeImpl(script_state, offset, std::nullopt, exception_state);
+  if (map_data.empty()) {
+    return nullptr;
+  }
+  return CreateArrayBufferForMappedData(script_state->GetIsolate(), map_data);
 }
 
 DOMArrayBuffer* GPUBuffer::getMappedRange(ScriptState* script_state,
                                           uint64_t offset,
                                           uint64_t size,
                                           ExceptionState& exception_state) {
-  return GetMappedRangeImpl(script_state, offset, size, exception_state);
+  auto map_data =
+      GetMappedRangeImpl(script_state, offset, size, exception_state);
+  if (map_data.empty()) {
+    return nullptr;
+  }
+  return CreateArrayBufferForMappedData(script_state->GetIsolate(), map_data);
 }
 
 v8::Local<v8::Value> GPUBuffer::getMMapDescriptor(
@@ -261,40 +270,58 @@ v8::Local<v8::Value> GPUBuffer::getMMapDescriptor(
     uint64_t bufferOffset,
     uint64_t size,
     ExceptionState& exception_state) {
-  // TODO(crbug.com/401111547): Add the validation from GetMappedRangeImpl.
-  void* mapped_range =
-      const_cast<void*>(GetHandle().GetConstMappedRange(bufferOffset, size));
-  CHECK(mapped_range);
+  constexpr uint64_t kPageSize = 4096;  // FIXME: ??
+  if (bufferOffset % kPageSize != 0 || size % kPageSize != 0) {
+    exception_state.ThrowRangeError("Range not page-aligned");
+  }
+
+  auto map_data =
+      GetMappedRangeImpl(script_state, bufferOffset, size, exception_state);
+  if (map_data.empty()) {
+    if (!exception_state.HadException()) {
+      exception_state.ThrowRangeError("Unknown failure to map");
+    }
+    return {};
+  }
 
   gpu::webgpu::WebGPUInterface* webgpu =
       GetContextProviderWeakPtr()->ContextProvider().WebGPUInterface();
-  auto shmRegion = webgpu->GetShmRegionForPointer(mapped_range, size);
+  auto shmRegion = webgpu->GetShmRegionForPointer(map_data);
+  // FIXME: Do something with the shmRegion's offset and size!
+  // Or if that's not possible then we need to make it so that GPUBuffer
+  // mapped memory is always a whole shm block and not just a suballocation.
+  // For now we just assert we're in the latter case (but it's not guaranteed).
+  CHECK(shmRegion.offset == 0)
+      << "TODO: Not implemented - pointer must be whole chunk";
 
-  // TODO(crbug.com/401111547): Implement for platforms other than desktop Linux
-  if constexpr (std::is_same_v<base::subtle::PlatformSharedMemoryHandle, int>) {
-    base::subtle::PlatformSharedMemoryHandle handle =
-        shmRegion.shm->GetPlatformHandle();
+  base::subtle::PlatformSharedMemoryHandle handle =
+      shmRegion.shm->GetPlatformHandle();
 
-    auto result =
-        v8::WasmMemoryMapDescriptor::New(script_state->GetIsolate(), handle.fd);
-    mmap_descriptor_.Reset(script_state->GetIsolate(), result);
-    return result;
-    // FIXME: Do something with this (and also the shmRegion's offset and size!
-    // or if that's not possible then we need to make it so that GPUBuffer
-    // mapped memory is always a whole shm block and not just a suballocation.)
-  } else {
-    CHECK(false) << "Not implemented on this platform";
-  }
+#if BUILDFLAG(IS_APPLE)
+#error "Not implemented"
+#elif BUILDFLAG(IS_FUCHSIA)
+#error "Not implemented"
+#elif BUILDFLAG(IS_WIN)
+#error "Not implemented"
+#elif BUILDFLAG(IS_ANDROID)
+  auto mmap_descriptor =
+      v8::WasmMemoryMapDescriptor::New(script_state->GetIsolate(), handle);
+#else
+  auto mmap_descriptor =
+      v8::WasmMemoryMapDescriptor::New(script_state->GetIsolate(), handle.fd);
+#endif
+
+  mmap_descriptor_.Reset(script_state->GetIsolate(), mmap_descriptor);
+  return mmap_descriptor;
 }
 
 void GPUBuffer::unmap(v8::Isolate* isolate) {
-  // FIXME: If the buffer was mmapped into Wasm we need to un-mmap it here.
-  ResetMappingState(isolate);
   if (!mmap_descriptor_.IsEmpty()) {
     mmap_descriptor_.Get(isolate)->Unmap();
-  } else {
-    GetHandle().Unmap();
   }
+
+  ResetMappingState(isolate);
+  GetHandle().Unmap();
   if (map_async_future_) {
     // Since the JS spec's require that the promise be rejected in-line here if
     // we are mapped, we need to do a quick poll on the future, and call
@@ -448,10 +475,11 @@ ScriptPromise<IDLUndefined> GPUBuffer::MapAsyncImpl(
   return promise;
 }
 
-DOMArrayBuffer* GPUBuffer::GetMappedRangeImpl(ScriptState* script_state,
-                                              uint64_t offset,
-                                              std::optional<uint64_t> size,
-                                              ExceptionState& exception_state) {
+std::span<uint8_t> GPUBuffer::GetMappedRangeImpl(
+    ScriptState* script_state,
+    uint64_t offset,
+    std::optional<uint64_t> size,
+    ExceptionState& exception_state) {
   // Compute the defaulted size which is "until the end of the buffer" or 0 if
   // offset is past the end of the buffer.
   uint64_t size_defaulted = 0;
@@ -476,7 +504,7 @@ DOMArrayBuffer* GPUBuffer::GetMappedRangeImpl(ScriptState* script_state,
         String::Format(
             "getMappedRange failed, offset(%zu) + size(%zu) overflows size_t",
             range_offset, range_size));
-    return nullptr;
+    return {};
   }
   size_t range_end = range_offset + range_size;
 
@@ -494,7 +522,7 @@ DOMArrayBuffer* GPUBuffer::GetMappedRangeImpl(ScriptState* script_state,
                          "previously returned range [%zu, %zu).",
                          range_offset, range_end, candidate_start,
                          candidate_end));
-      return nullptr;
+      return {};
     }
   }
 
@@ -507,7 +535,7 @@ DOMArrayBuffer* GPUBuffer::GetMappedRangeImpl(ScriptState* script_state,
     EnsureFlush(ToEventLoop(script_state));
     exception_state.ThrowDOMException(DOMExceptionCode::kOperationError,
                                       "getMappedRange failed");
-    return nullptr;
+    return {};
   }
 
   // The maximum size that can be mapped in JS so that we can ensure we don't
@@ -524,7 +552,7 @@ DOMArrayBuffer* GPUBuffer::GetMappedRangeImpl(ScriptState* script_state,
         String::Format("getMappedRange failed, size (%zu) is too large "
                        "for the implementation. max size = %zu",
                        range_size, v8::TypedArray::kMaxByteLength));
-    return nullptr;
+    return {};
   }
 
   // It is safe to const_cast the |data| pointer because it is a shadow
@@ -534,8 +562,7 @@ DOMArrayBuffer* GPUBuffer::GetMappedRangeImpl(ScriptState* script_state,
       const_cast<uint8_t*>(static_cast<const uint8_t*>(map_data_const));
 
   mapped_ranges_.push_back(std::make_pair(range_offset, range_end));
-  return CreateArrayBufferForMappedData(script_state->GetIsolate(), map_data,
-                                        range_size);
+  return std::span(map_data, range_size);
 }
 
 void GPUBuffer::OnMapAsyncCallback(
@@ -562,14 +589,14 @@ void GPUBuffer::OnMapAsyncCallback(
   map_async_future_ = std::nullopt;
 }
 
-DOMArrayBuffer* GPUBuffer::CreateArrayBufferForMappedData(v8::Isolate* isolate,
-                                                          void* data,
-                                                          size_t data_length) {
-  DCHECK(data);
-  DCHECK_LE(static_cast<uint64_t>(data_length), v8::TypedArray::kMaxByteLength);
+DOMArrayBuffer* GPUBuffer::CreateArrayBufferForMappedData(
+    v8::Isolate* isolate,
+    std::span<uint8_t> data) {
+  DCHECK(data.data());
+  DCHECK_LE(static_cast<uint64_t>(data.size()), v8::TypedArray::kMaxByteLength);
 
   ArrayBufferContents contents(v8::ArrayBuffer::NewBackingStore(
-      data, data_length, v8::BackingStore::EmptyDeleter, nullptr));
+      data.data(), data.size(), v8::BackingStore::EmptyDeleter, nullptr));
   GPUMappedDOMArrayBuffer* array_buffer =
       GPUMappedDOMArrayBuffer::Create(isolate, this, contents);
   mapped_array_buffers_.push_back(array_buffer);

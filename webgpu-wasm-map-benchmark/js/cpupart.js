@@ -7,12 +7,12 @@ export const CPUPart = {
   // problems when the heap gets resized.
   get memory() { return Module.memory; },
   get data1Ptr() { return data1Ptr; },
+  get data2Ptr() { return data2Ptr; },
   get data1View() { return new Uint32Array(Module.memory.buffer, data1Ptr, config.numPixels); },
   get data2View() { return new Uint32Array(Module.memory.buffer, data2Ptr, config.numPixels); },
 
   reset() {
-    if (data1Ptr) Module.freeRGBA(data1Ptr);
-    if (data2Ptr) Module.freeRGBA(data2Ptr);
+    Module.freeAllImages();
 
     data1Ptr = Module.allocRGBA(config.numPixels);
     Module.generateSomeData(config.canvasWidth, config.canvasHeight, data1Ptr);

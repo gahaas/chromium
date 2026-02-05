@@ -1,12 +1,24 @@
-/** Allocate RGBA8 image in Wasm memory. */
-export function allocRGBA(numPixels: usize): usize {
-  const ptr = heap.alloc(numPixels * 4);
-  assert(ptr !== 0, "failed to allocate?");
-  return ptr;
+const rgbaAllocations: usize[] = [];
+
+const kPageSize: usize = 4096;
+function roundUpToPageSize(n: usize): usize {
+  return usize(Math.ceil(f64(n) / kPageSize) * kPageSize);
 }
 
-export function freeRGBA(ptr: usize): void {
-  heap.free(ptr);
+/** Allocate RGBA8 image in Wasm memory. */
+export function allocRGBA(numPixels: usize): usize {
+  const allocation = heap.alloc(numPixels * 4 + kPageSize);
+  assert(allocation !== 0, "failed to allocate?");
+  rgbaAllocations.push(allocation);
+
+  return roundUpToPageSize(allocation);
+}
+
+export function freeAllImages(): void {
+  for (let i = 0; i < rgbaAllocations.length; ++i) {
+    heap.free(rgbaAllocations[i]);
+  }
+  rgbaAllocations.length = 0;
 }
 
 function pixel(x: u32, y: u32): u32 {

@@ -1345,6 +1345,9 @@ size_t WasmMemoryMapDescriptor::MapDescriptor(
 
   uint8_t* target =
       reinterpret_cast<uint8_t*>(backing_store->buffer_start()) + offset;
+  CHECK_EQ(reinterpret_cast<uintptr_t>(target) %
+               GetArrayBufferPageAllocator()->AllocatePageSize(),
+           0);
 
   struct stat stat_for_size;
   if (fstat(this->file_descriptor(), &stat_for_size) == -1) {

@@ -7,10 +7,9 @@ export declare const memory: WebAssembly.Memory;
  */
 export declare function allocRGBA(numPixels: number): number;
 /**
- * assembly/index/freeRGBA
- * @param ptr `usize`
+ * assembly/index/freeAllImages
  */
-export declare function freeRGBA(ptr: number): void;
+export declare function freeAllImages(): void;
 /**
  * assembly/index/generateSomeData
  * @param w `u32`

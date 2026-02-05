@@ -20,9 +20,9 @@ async function iteration() {
   if (config.uploadMethod === 'mmap') {
     uploadBuffer = UploadPool.acquire();
 
-    // Map the memory directly on top of data2Ptr to receive its data.
+    // Map the memory directly on top of data2Ptr to receive its data directly during processing.
     let mmapDescriptor = uploadBuffer.getMMapDescriptor(0, config.numBytes);
-    mmapDescriptor.map(CPUPart.memory, CPUPart.data1Ptr);
+    mmapDescriptor.map(CPUPart.memory, CPUPart.data2Ptr);
   }
   CPUPart.processImage(frameNum);
   const t1 = performance.now();
@@ -48,6 +48,7 @@ async function iteration() {
       } break;
     case 'mmap':
       {
+        // The data was written directly into the mapping. Just unmap.
         uploadBuffer.unmap();
         commandEncoder.copyBufferToBuffer(uploadBuffer, 0, GPUPart.buffer1, 0, uploadBuffer.size);
       } break;
@@ -81,7 +82,8 @@ async function iteration() {
     case 'mmap':
       {
         // Map the memory directly on top of data1Ptr to replace its data.
-        GPUPart.readbackBuffer.mmapMappedRange(CPUPart.memory, CPUPart.data1Ptr, 0, config.numBytes);
+        let mmapDescriptor = GPUPart.readbackBuffer.getMMapDescriptor(0, config.numBytes);
+        mmapDescriptor.map(CPUPart.memory, CPUPart.data1Ptr);
       } break;
     default:
       throw new Error('??');

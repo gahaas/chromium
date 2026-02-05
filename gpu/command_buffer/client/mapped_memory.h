@@ -192,7 +192,7 @@ class GPU_COMMAND_BUFFER_CLIENT_EXPORT MappedMemoryManager {
     raw_ptr<const base::UnsafeSharedMemoryRegion> shm;
     size_t offset;
   };
-  ShmRegion GetShmRegionForPointer(void* pointer, size_t size) const;
+  ShmRegion GetShmRegionForPointer(std::span<uint8_t> pointer) const;
 
   // Dump memory usage - called from GLES2Implementation.
   bool OnMemoryDump(const base::trace_event::MemoryDumpArgs& args,

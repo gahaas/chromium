@@ -169,15 +169,17 @@ void MappedMemoryManager::FreeUnused() {
 }
 
 MappedMemoryManager::ShmRegion MappedMemoryManager::GetShmRegionForPointer(
-    void* pointer,
-    size_t size) const {
+    std::span<uint8_t> pointer) const {
   for (auto& chunk : chunks_) {
-    if (chunk->IsInChunk(pointer)) {
-      uint32_t offset = chunk->GetOffset(pointer);
-      DCHECK_LT(size, std::numeric_limits<uint32_t>::max());
-      DCHECK_LE(offset + static_cast<uint32_t>(size), chunk->GetSize());
+    if (chunk->IsInChunk(pointer.data())) {
+      uint32_t offset = chunk->GetOffset(pointer.data());
+      DCHECK_LT(pointer.size(), std::numeric_limits<uint32_t>::max());
+      DCHECK_LE(offset + static_cast<uint32_t>(pointer.size()),
+                chunk->GetSize());
+      CHECK(offset == 0 && pointer.size() == chunk->GetSize())
+          << "TODO: Not implemented - pointer must be whole chunk";
       return ShmRegion{
-          .size = size,
+          .size = pointer.size(),
           .shm = &chunk->shared_memory()->backing()->shared_memory_region(),
           .offset = offset,
       };

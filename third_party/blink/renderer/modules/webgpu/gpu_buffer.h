@@ -100,18 +100,17 @@ class GPUBuffer : public DawnObject<wgpu::Buffer> {
                                            uint64_t offset,
                                            std::optional<uint64_t> size,
                                            ExceptionState& exception_state);
-  DOMArrayBuffer* GetMappedRangeImpl(ScriptState* script_state,
-                                     uint64_t offset,
-                                     std::optional<uint64_t> size,
-                                     ExceptionState& exception_state);
+  std::span<uint8_t> GetMappedRangeImpl(ScriptState* script_state,
+                                        uint64_t offset,
+                                        std::optional<uint64_t> size,
+                                        ExceptionState& exception_state);
 
   void OnMapAsyncCallback(ScriptPromiseResolver<IDLUndefined>* resolver,
                           wgpu::MapAsyncStatus status,
                           wgpu::StringView message);
 
   DOMArrayBuffer* CreateArrayBufferForMappedData(v8::Isolate* isolate,
-                                                 void* data,
-                                                 size_t data_length);
+                                                 std::span<uint8_t> data);
   void ResetMappingState(v8::Isolate* isolate);
 
   void SetLabelImpl(const String& value) override {
