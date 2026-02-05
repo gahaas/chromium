@@ -1,0 +1,11 @@
+{
+  "type": "module",
+  "scripts": {
+    "build": "asc assembly/index.ts --target=release && asc assembly/index.ts --target=debug",
+    "start": "servez --local --shared-array-buffers"
+  },
+  "devDependencies": {
+    "assemblyscript": "^0.28.9",
+    "servez": "^2.3.2"
+  }
+}

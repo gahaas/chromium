@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>wasm to webgpu upload benchmark</title>
+    <style>
+      body {
+        background: black;
+      }
+      #cvs {
+        width: calc(100vw - 450px - 8px * 3 - 32px * 2);
+        height: auto;
+        border: 32px solid gray;
+        border-radius: 6px;
+      }
+      /* tweakpane */
+      .tp-dfwv {
+        width: 450px !important;
+      }
+      .tp-dfwv * {
+        font-size: 12pt;
+      }
+    </style>
+    <script type="module" src="js/main.js"></script>
+  </head>
+  <body>
+    <div id="panediv"></div>
+    <canvas id="cvs"></canvas>
+  </body>
+</html>
