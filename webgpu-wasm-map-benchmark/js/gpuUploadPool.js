@@ -1,3 +1,4 @@
+import { resetWarmupTime } from './main.js';
 import { config } from './ui.js';
 import { device } from "./util.js";
 
@@ -10,10 +11,12 @@ export const UploadPool = {
       if (b.size === config.numBytes) {
         return b;
       } else {
+        resetWarmupTime();
         b.destroy();
         return this.acquire();
       }
     } else {
+      resetWarmupTime();
       return device.createBuffer({
         label: `pool buffer @ ${config.canvasWidth}x${config.canvasHeight}`,
         size: config.numBytes,
@@ -25,11 +28,7 @@ export const UploadPool = {
 
   release(b) {
     b.mapAsync(GPUMapMode.WRITE).then(() => {
-      if (b.size === config.numBytes) {
-        availableMappedBuffers.push(b);
-      } else {
-        b.destroy();
-      }
+      availableMappedBuffers.push(b);
     });
   },
 };

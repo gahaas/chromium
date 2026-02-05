@@ -4,18 +4,23 @@ import { CPUPart } from './cpupart.js';
 import { GPUPart } from './gpupart.js';
 import { UploadPool } from './gpuUploadPool.js';
 
+export function resetWarmupTime() {
+  frameTimes.length = 0;
+  // Don't record stats this iteration.
+  warmupIterationsRemaining = 1;
+}
+
 async function iteration() {
   resetIfNeeded(() => {
     CPUPart.reset();
     GPUPart.reset();
-    frameTimes.length = 0;
-    // Don't record stats this iteration.
-    warmupIterationsRemaining = 1;
+    resetWarmupTime();
   });
 
-  const t0 = performance.now();
+  const t = [];
+  t.push(performance.now());
 
-  // 1. CPU-side processing step (CPU data1 -> CPU data2)
+  // 1a. Map
   let uploadBuffer;
   if (config.uploadMethod === 'mmap') {
     uploadBuffer = UploadPool.acquire();
@@ -24,10 +29,17 @@ async function iteration() {
     let mmapDescriptor = uploadBuffer.getMMapDescriptor(0, config.numBytes);
     mmapDescriptor.map(CPUPart.memory, CPUPart.data2Ptr);
   }
-  CPUPart.processImage(frameNum);
-  const t1 = performance.now();
+  t.push(performance.now());
 
-  // 2. Upload (CPU data2 -> GPU data1)
+  // 1b. CPU-side processing step (CPU data1 -> CPU data2)
+  CPUPart.processImage(frameNum);
+  t.push(performance.now());
+
+  // 2a. Unmap readbackBuffer
+  GPUPart.readbackBuffer.unmap();
+  t.push(performance.now());
+
+  // 2b. Unmap/upload uploadBuffer (CPU data2 -> GPU data1)
   const commandEncoder = device.createCommandEncoder();
   switch (config.uploadMethod) {
     case 'none':
@@ -55,18 +67,18 @@ async function iteration() {
     default:
       throw new Error('??');
   }
-  const t2 = performance.now();
+  t.push(performance.now());
 
   // 3. GPU-side processing step (GPU data1 -> GPU data2)
   //    (The output of this step is what's visible.)
-  GPUPart.readbackBuffer.unmap();
   GPUPart.processImage(commandEncoder, frameNum);
   device.queue.submit([commandEncoder.finish()]);
   if (uploadBuffer) {
     UploadPool.release(uploadBuffer);
   }
+  // Note this "flushes the pipeline" so we always only have one thing going on.
   await GPUPart.readbackBuffer.mapAsync(GPUMapMode.READ);
-  const t3 = performance.now();
+  t.push(performance.now());
 
   // 4. Download (GPU data2 -> CPU data1)
   switch (config.downloadMethod) {
@@ -88,12 +100,14 @@ async function iteration() {
     default:
       throw new Error('??');
   }
-  const t4 = performance.now();
+  t.push(performance.now());
 
-  timing.cpuVerticalSlide_cpuTime = t1 - t0;
-  timing.upload_cpuTime = t2 - t1;
-  timing.gpuHorizontalSlide_rtTime = t3 - t2;
-  timing.download_cpuTime = t4 - t3;
+  timing.mapUploadBuffer_cpuTime = t[1] - t[0];
+  timing.cpuVerticalSlide_cpuTime = t[2] - t[1];
+  timing.unmapReadback_cpuTime = t[3] - t[2];
+  timing.unmapOrUpload_cpuTime = t[4] - t[3];
+  timing.gpuHorizontalSlide_rtTime = t[5] - t[4];
+  timing.download_cpuTime = t[6] - t[5];
 }
 
 let tLast = performance.now();
@@ -108,6 +122,7 @@ while (true) {
       timing[k] = 0;
     }
     frameTimes.length = 0;
+    resetIfNeeded(() => {});
     await new Promise(requestAnimationFrame);
   } else {
     await iteration();

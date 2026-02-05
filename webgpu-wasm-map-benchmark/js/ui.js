@@ -44,8 +44,10 @@ fConfig.addBinding(liveConfig, 'downloadMethod', {
 fConfig.addBinding(liveConfig, 'numSamplesForMean', { min: 1, max: 1000, step: 1 });
 
 export const timing = {
+  mapUploadBuffer_cpuTime: 0,
   cpuVerticalSlide_cpuTime: 0,
-  upload_cpuTime: 0,
+  unmapReadback_cpuTime: 0,
+  unmapOrUpload_cpuTime: 0,
   gpuHorizontalSlide_rtTime: 0,
   download_cpuTime: 0,
   iter_time: 0,
@@ -53,8 +55,10 @@ export const timing = {
   iter_time_samples: 0,
 };
 const fTiming = pane.addFolder({ title: 'Timing' });
+fTiming.addBinding(timing, 'mapUploadBuffer_cpuTime', { readonly: true, view: 'graph' });
 fTiming.addBinding(timing, 'cpuVerticalSlide_cpuTime', { readonly: true, view: 'graph' });
-fTiming.addBinding(timing, 'upload_cpuTime', { readonly: true, view: 'graph' });
+fTiming.addBinding(timing, 'unmapReadback_cpuTime', { readonly: true, view: 'graph' });
+fTiming.addBinding(timing, 'unmapOrUpload_cpuTime', { readonly: true, view: 'graph' });
 fTiming.addBinding(timing, 'gpuHorizontalSlide_rtTime', { readonly: true, view: 'graph' });
 fTiming.addBinding(timing, 'download_cpuTime', { readonly: true, view: 'graph' });
 fTiming.addBlade({ view: 'separator' });
