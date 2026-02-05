@@ -316,7 +316,7 @@ vars = {
   # Three lines of non-changing comments so that
   # the commit queue can handle CLs rolling V8
   # and whatever else without interference from each other.
-  'v8_revision': 'd2c8108682cdabf403c866497aad97307e58617a',
+  #'v8_revision': 'd2c8108682cdabf403c866497aad97307e58617a',
   # Three lines of non-changing comments so that
   # the commit queue can handle CLs rolling ANGLE
   # and whatever else without interference from each other.
@@ -3086,8 +3086,8 @@ deps = {
       'condition': 'checkout_mac',
   },
 
-  'src/v8':
-    Var('chromium_git') + '/v8/v8.git' + '@' +  Var('v8_revision'),
+  #'src/v8':
+  #  Var('chromium_git') + '/v8/v8.git' + '@' +  Var('v8_revision'),
 
 # See checkout_src_internal_infra declaration.
 # LINT.IfChange
