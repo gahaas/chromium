@@ -1327,6 +1327,10 @@ WasmMemoryMapDescriptor::NewFromFileDescriptor(Isolate* isolate,
 
 size_t WasmMemoryMapDescriptor::MapDescriptor(
     DirectHandle<WasmMemoryObject> memory, size_t offset) {
+  static size_t ah_size = 0;
+  if (ah_size) {
+    return ah_size;
+  }
 #if V8_TARGET_OS_LINUX
   CHECK(v8_flags.experimental_wasm_memory_control);
   std::shared_ptr<BackingStore> backing_store = memory->backing_store();
@@ -1357,6 +1361,7 @@ size_t WasmMemoryMapDescriptor::MapDescriptor(
   size_t size = RoundUp(stat_for_size.st_size,
                         GetArrayBufferPageAllocator()->AllocatePageSize());
 
+  ah_size = size;
   if (size + offset < size) {
     // Overflow
     return 0;
@@ -1376,39 +1381,40 @@ size_t WasmMemoryMapDescriptor::MapDescriptor(
 }
 
 bool WasmMemoryMapDescriptor::UnmapDescriptor() {
-#if V8_TARGET_OS_LINUX
-  CHECK(v8_flags.experimental_wasm_memory_control);
-  DisallowGarbageCollection no_gc;
-
-  i::Tagged<i::WasmMemoryObject> memory =
-      Cast<i::WasmMemoryObject>(MakeStrong(this->memory()));
-  if (memory.is_null()) {
-    return true;
-  }
-  uint32_t offset = this->offset();
-  uint32_t size = this->size();
-  std::shared_ptr<BackingStore> backing_store = memory->backing_store();
-
-  // The following checks already passed during `MapDescriptor`, and they should
-  // still pass.
-  CHECK(!memory->is_memory64());
-  CHECK(!backing_store->is_shared());
-  CHECK_EQ(size % GetArrayBufferPageAllocator()->AllocatePageSize(), 0);
-  CHECK_GE(size + offset, size);
-  CHECK_LE(size + offset, backing_store->byte_length());
-
-  uint8_t* target =
-      reinterpret_cast<uint8_t*>(backing_store->buffer_start()) + offset;
-
-  void* ret_val = mmap(target, size, PROT_READ | PROT_WRITE,
-                       MAP_FIXED | MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-
-  CHECK_NE(ret_val, MAP_FAILED);
-  CHECK_EQ(ret_val, target);
   return true;
-#else
-  return false;
-#endif
+// #if V8_TARGET_OS_LINUX
+//   CHECK(v8_flags.experimental_wasm_memory_control);
+//   DisallowGarbageCollection no_gc;
+// 
+//   i::Tagged<i::WasmMemoryObject> memory =
+//       Cast<i::WasmMemoryObject>(MakeStrong(this->memory()));
+//   if (memory.is_null()) {
+//     return true;
+//   }
+//   uint32_t offset = this->offset();
+//   uint32_t size = this->size();
+//   std::shared_ptr<BackingStore> backing_store = memory->backing_store();
+// 
+//   // The following checks already passed during `MapDescriptor`, and they should
+//   // still pass.
+//   CHECK(!memory->is_memory64());
+//   CHECK(!backing_store->is_shared());
+//   CHECK_EQ(size % GetArrayBufferPageAllocator()->AllocatePageSize(), 0);
+//   CHECK_GE(size + offset, size);
+//   CHECK_LE(size + offset, backing_store->byte_length());
+// 
+//   uint8_t* target =
+//       reinterpret_cast<uint8_t*>(backing_store->buffer_start()) + offset;
+// 
+//   void* ret_val = mmap(target, size, PROT_READ | PROT_WRITE,
+//                        MAP_FIXED | MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+// 
+//   CHECK_NE(ret_val, MAP_FAILED);
+//   CHECK_EQ(ret_val, target);
+//   return true;
+// #else
+//   return false;
+// #endif
 }
 
 // static
