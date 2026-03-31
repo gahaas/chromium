@@ -1374,6 +1374,10 @@ size_t WasmMemoryMapDescriptor::MapDescriptor(
 
   void* ret_val = mmap(target, size, PROT_READ | PROT_WRITE,
                        MAP_FIXED | MAP_SHARED, this->file_descriptor(), 0);
+  if (ret_val == MAP_FAILED) {
+    v8::base::OS::PrintError("MMAP stat result: dev=%lu mode=%d rdev=%lu size=%zu", stat_for_size.st_dev, stat_for_size.st_mode, stat_for_size.st_rdev, stat_for_size.st_size);
+    v8::base::OS::PrintError("MMAP mmap(%p, %zu, _, _, %d, _) error: %d %s", target, size, this->file_descriptor(), errno, strerror(errno));
+  }
   CHECK_NE(ret_val, MAP_FAILED);
   CHECK_EQ(ret_val, target);
   return size;
