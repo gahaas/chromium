@@ -4,14 +4,14 @@
 
 #include "src/wasm/wasm-objects.h"
 
-#if V8_TARGET_OS_LINUX
+#if V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID
 #include <sys/mman.h>
 #include <sys/stat.h>
 // `sys/mman.h defines `MAP_TYPE`, but `MAP_TYPE` also gets defined within V8.
 // Since we don't need `sys/mman.h`'s `MAP_TYPE`, we undefine it immediately
 // after the `#include`.
 #undef MAP_TYPE
-#endif  // V8_TARGET_OS_LINUX
+#endif  // V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID
 
 #include <optional>
 
@@ -1285,25 +1285,27 @@ DirectHandle<JSArrayBuffer> WasmMemoryObject::ChangeArrayBufferResizability(
 
 MaybeDirectHandle<WasmMemoryMapDescriptor>
 WasmMemoryMapDescriptor::NewFromAnonymous(Isolate* isolate, size_t length) {
-#if V8_TARGET_OS_LINUX
-  CHECK(v8_flags.experimental_wasm_memory_control);
-  DirectHandle<JSFunction> descriptor_ctor(
-      isolate->native_context()->wasm_memory_map_descriptor_constructor(),
-      isolate);
+#if V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID
+  if (__builtin_available(android 30, *)) {
+    CHECK(v8_flags.experimental_wasm_memory_control);
+    DirectHandle<JSFunction> descriptor_ctor(
+        isolate->native_context()->wasm_memory_map_descriptor_constructor(),
+        isolate);
 
-  int file_descriptor = memfd_create("wasm_memory_map_descriptor", MFD_CLOEXEC);
-  if (file_descriptor == -1) {
-    return {};
-  }
-  int ret_val = ftruncate(file_descriptor, length);
-  if (ret_val == -1) {
-    return {};
-  }
+    int file_descriptor = memfd_create("wasm_memory_map_descriptor", MFD_CLOEXEC);
+    if (file_descriptor == -1) {
+      return {};
+    }
+    int ret_val = ftruncate(file_descriptor, length);
+    if (ret_val == -1) {
+      return {};
+    }
 
-  return NewFromFileDescriptor(isolate, file_descriptor);
-#else   // V8_TARGET_OS_LINUX
+    return NewFromFileDescriptor(isolate, file_descriptor);
+  }
+#endif  // V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID
+
   return {};
-#endif  // V8_TARGET_OS_LINUX
 }
 
 DirectHandle<WasmMemoryMapDescriptor>
@@ -1331,7 +1333,7 @@ size_t WasmMemoryMapDescriptor::MapDescriptor(
   if (ah_size) {
     return ah_size;
   }
-#if V8_TARGET_OS_LINUX
+#if V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID
   CHECK(v8_flags.experimental_wasm_memory_control);
   std::shared_ptr<BackingStore> backing_store = memory->backing_store();
   if (backing_store->is_shared()) {
@@ -1382,7 +1384,7 @@ size_t WasmMemoryMapDescriptor::MapDescriptor(
 
 bool WasmMemoryMapDescriptor::UnmapDescriptor() {
   return true;
-// #if V8_TARGET_OS_LINUX
+// #if V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID
 //   CHECK(v8_flags.experimental_wasm_memory_control);
 //   DisallowGarbageCollection no_gc;
 // 
