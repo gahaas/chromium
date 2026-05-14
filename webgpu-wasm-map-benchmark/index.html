@@ -6,12 +6,16 @@
     <style>
       body {
         background: black;
+        color: white;
       }
       #cvs {
         width: calc(100vw - 450px - 8px * 3 - 32px * 2);
         height: auto;
         border: 32px solid gray;
         border-radius: 6px;
+      }
+      #log {
+        display: block;
       }
       /* tweakpane */
       .tp-dfwv {
@@ -26,5 +30,6 @@
   <body>
     <div id="panediv"></div>
     <canvas id="cvs"></canvas>
+    <textarea readonly id=log cols=60 rows=14></textarea>
   </body>
 </html>

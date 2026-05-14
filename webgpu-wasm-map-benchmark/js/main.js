@@ -1,13 +1,12 @@
-import { resetIfNeeded, config, timing } from './ui.js';
-import { device } from './util.js';
+import { resetIfNeeded, config, timing, pauseConfig } from './ui.js';
+import { device, hasCrashed } from './util.js';
 import { CPUPart } from './cpupart.js';
 import { GPUPart } from './gpupart.js';
 import { UploadPool } from './gpuUploadPool.js';
 
 export function resetWarmupTime() {
-  frameTimes.length = 0;
   // Don't record stats this iteration.
-  warmupIterationsRemaining = 1;
+  warmupIterationsRemaining = 50;
 }
 
 async function iteration() {
@@ -83,7 +82,9 @@ async function iteration() {
   if (uploadBuffer) {
     UploadPool.release(uploadBuffer);
   }
-  // Note this "flushes the pipeline" so we always only have one thing going on.
+  // Note both of these operations "flush the pipeline" so we always only have one thing going on.
+  await device.queue.onSubmittedWorkDone();
+  t.push(performance.now());
   await GPUPart.readbackBuffer.mapAsync(GPUMapMode.READ);
   t.push(performance.now());
 
@@ -109,27 +110,24 @@ async function iteration() {
   }
   t.push(performance.now());
 
-  timing.mapUploadBuffer_cpuTime = t[1] - t[0];
-  timing.cpuVerticalSlide_cpuTime = t[2] - t[1];
-  timing.unmapReadback_cpuTime = t[3] - t[2];
-  timing.unmapOrUpload_cpuTime = t[4] - t[3];
-  timing.gpuHorizontalSlide_rtTime = t[5] - t[4];
-  timing.download_cpuTime = t[6] - t[5];
+  if (warmupIterationsRemaining == 0) {
+    timing._mapUploadBuffer_cpuTime.addSample(t[1] - t[0]);
+    timing._cpuVerticalSlide_cpuTime.addSample(t[2] - t[1]);
+    timing._unmapReadback_cpuTime.addSample(t[3] - t[2]);
+    timing._unmapOrUpload_cpuTime.addSample(t[4] - t[3]);
+    timing._gpuHorizontalSlide_rtTime.addSample(t[5] - t[4]);
+    timing._mapAsync_rtTime.addSample(t[6] - t[5]);
+    timing._download_cpuTime.addSample(t[7] - t[6]);
+  }
 }
 
 let tLast = performance.now();
 let frameNum = 0;
-let frameTimes = [];
 let warmupIterationsRemaining = 0;
 
 // Async main loop
-while (true) {
-  if (config.pause || document.hidden) {
-    for (const k of Object.keys(timing)) {
-      timing[k] = 0;
-    }
-    frameTimes.length = 0;
-    resetIfNeeded(() => {});
+while (!hasCrashed()) {
+  if (pauseConfig.pause || document.hidden) {
     await new Promise(requestAnimationFrame);
   } else {
     await iteration();
@@ -141,18 +139,21 @@ while (true) {
     if (warmupIterationsRemaining > 0) {
       --warmupIterationsRemaining;
     } else {
-      if (frameTimes.length > config.numSamplesForMean) {
-        frameTimes.length = config.numSamplesForMean;
-      } else if (frameTimes.length < config.numSamplesForMean) {
-        frameNum = frameTimes.length;
-        frameTimes.push(0);
-      }
-      timing.iter_time = dt;
-      frameTimes[frameNum % frameTimes.length] = dt;
-      timing.iter_time_mean = frameTimes.reduce((a, x) => a + x, 0) / frameTimes.length;
-      timing.iter_time_samples = frameTimes.length;
+      timing._iter_time.addSample(dt);
     }
 
     ++frameNum;
+
+    log.textContent = `\
+|                       step | time (ms)
+| --------------------------:|:---------
+|    mapUploadBuffer_cpuTime | ${timing.mapUploadBuffer_cpuTime}
+|   cpuVerticalSlide_cpuTime | ${timing.cpuVerticalSlide_cpuTime}
+|      unmapReadback_cpuTime | ${timing.unmapReadback_cpuTime}
+|      unmapOrUpload_cpuTime | ${timing.unmapOrUpload_cpuTime}
+| gpuHorizontalSlide_rtTime  | ${timing.gpuHorizontalSlide_rtTime}
+|           mapAsync_rtTime  | ${timing.mapAsync_rtTime}
+|           download_cpuTime | ${timing.download_cpuTime}
+|               iter_time    | ${timing.iter_time}`;
   }
 }

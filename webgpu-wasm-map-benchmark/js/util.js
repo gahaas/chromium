@@ -10,6 +10,9 @@ globalThis.addEventListener('error', (ev) => {
 });
 
 /** Fail by showing a console error, and dialog box if possible. */
+let crashed = false;
+export function hasCrashed() { return crashed; }
+
 export const fail = (() => {
   function createErrorOutput() {
     if (typeof document === 'undefined') {
@@ -44,6 +47,8 @@ export const fail = (() => {
   let output;
 
   return (message) => {
+    crashed = true;
+
     if (!output) output = createErrorOutput();
 
     config.pause = true;
