@@ -1,4 +1,3 @@
-import { resetWarmupTime } from './main.js';
 import { config } from './ui.js';
 import { device } from "./util.js";
 
@@ -11,12 +10,10 @@ export const UploadPool = {
       if (b.size === config.numBytes) {
         return b;
       } else {
-        resetWarmupTime();
         b.destroy();
         return this.acquire();
       }
     } else {
-      resetWarmupTime();
       return device.createBuffer({
         label: `pool buffer @ ${config.canvasWidth}x${config.canvasHeight}`,
         size: config.numBytes,

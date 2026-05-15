@@ -1,19 +1,14 @@
-import { resetIfNeeded, config, timing, pauseConfig } from './ui.js';
+import { resetIfNeeded, config, timing, pauseConfig, resetTiming } from './ui.js';
 import { device, hasCrashed } from './util.js';
 import { CPUPart } from './cpupart.js';
 import { GPUPart } from './gpupart.js';
 import { UploadPool } from './gpuUploadPool.js';
 
-export function resetWarmupTime() {
-  // Don't record stats this iteration.
-  warmupIterationsRemaining = 50;
-}
-
 async function iteration() {
   resetIfNeeded(() => {
     CPUPart.reset();
     GPUPart.reset();
-    resetWarmupTime();
+    resetTiming();
   });
 
   const t = [];
@@ -110,20 +105,17 @@ async function iteration() {
   }
   t.push(performance.now());
 
-  if (warmupIterationsRemaining == 0) {
-    timing._mapUploadBuffer_cpuTime.addSample(t[1] - t[0]);
-    timing._cpuVerticalSlide_cpuTime.addSample(t[2] - t[1]);
-    timing._unmapReadback_cpuTime.addSample(t[3] - t[2]);
-    timing._unmapOrUpload_cpuTime.addSample(t[4] - t[3]);
-    timing._gpuHorizontalSlide_rtTime.addSample(t[5] - t[4]);
-    timing._mapAsync_rtTime.addSample(t[6] - t[5]);
-    timing._download_cpuTime.addSample(t[7] - t[6]);
-  }
+  timing._mapUploadBuffer_cpuTime.addSample(t[1] - t[0]);
+  timing._cpuVerticalSlide_cpuTime.addSample(t[2] - t[1]);
+  timing._unmapReadback_cpuTime.addSample(t[3] - t[2]);
+  timing._unmapOrUpload_cpuTime.addSample(t[4] - t[3]);
+  timing._gpuHorizontalSlide_rtTime.addSample(t[5] - t[4]);
+  timing._mapAsync_rtTime.addSample(t[6] - t[5]);
+  timing._download_cpuTime.addSample(t[7] - t[6]);
 }
 
 let tLast = performance.now();
 let frameNum = 0;
-let warmupIterationsRemaining = 0;
 
 // Async main loop
 while (!hasCrashed()) {
@@ -135,25 +127,7 @@ while (!hasCrashed()) {
     const now = performance.now();
     const dt = now - tLast;
     tLast = now;
-
-    if (warmupIterationsRemaining > 0) {
-      --warmupIterationsRemaining;
-    } else {
-      timing._iter_time.addSample(dt);
-    }
-
+    timing._iter_time.addSample(dt);
     ++frameNum;
-
-    log.textContent = `\
-|                       step | time (ms)
-| --------------------------:|:---------
-|    mapUploadBuffer_cpuTime | ${timing.mapUploadBuffer_cpuTime}
-|   cpuVerticalSlide_cpuTime | ${timing.cpuVerticalSlide_cpuTime}
-|      unmapReadback_cpuTime | ${timing.unmapReadback_cpuTime}
-|      unmapOrUpload_cpuTime | ${timing.unmapOrUpload_cpuTime}
-| gpuHorizontalSlide_rtTime  | ${timing.gpuHorizontalSlide_rtTime}
-|           mapAsync_rtTime  | ${timing.mapAsync_rtTime}
-|           download_cpuTime | ${timing.download_cpuTime}
-|               iter_time    | ${timing.iter_time}`;
   }
 }
