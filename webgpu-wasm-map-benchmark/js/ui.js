@@ -27,7 +27,7 @@ const liveConfig = {
   canvasHeight: 4096,
   doCPUProcessing: true,
   uploadMethod: 'copy',
-  doGPUProcessing: false,
+  doGPUProcessing: true,
   downloadMethod: 'copy',
   numSamplesForMean: 200,
 };
