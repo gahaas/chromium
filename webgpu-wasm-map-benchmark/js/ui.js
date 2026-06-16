@@ -107,37 +107,67 @@ export const timing = {
     const MB = config.numBytes / 1e6;
     return `${MB.toFixed(3)} MB`;
   },
-  _mapUploadBuffer_cpuTime: new SmoothedTiming(), get mapUploadBuffer_cpuTime() { return timing._mapUploadBuffer_cpuTime.getMeanAndVarianceStr(); },
+  _mmapUploadBuffer_cpuTime: new SmoothedTiming(), get mmapUploadBuffer_cpuTime() { return timing._mmapUploadBuffer_cpuTime.getMeanAndVarianceStr(); },
   _cpuVerticalSlide_cpuTime: new SmoothedTiming(), get cpuVerticalSlide_cpuTime() { return timing._cpuVerticalSlide_cpuTime.getMeanAndVarianceStr(); },
-  _unmapReadback_cpuTime: new SmoothedTiming(), get unmapReadback_cpuTime() { return timing._unmapReadback_cpuTime.getMeanAndVarianceStr(); },
   _unmapOrUpload_cpuTime: new SmoothedTiming(), get unmapOrUpload_cpuTime() { return timing._unmapOrUpload_cpuTime.getMeanAndVarianceStr(); },
   get unmapOrUpload_bandwidth() {
+    if (config.uploadMethod === 'mmap') {
+      return '-';
+    }
     const seconds = timing._unmapOrUpload_cpuTime.getMeanAndVariance().mean / 1e3;
     const GB = config.uploadMethod === 'none' ? 0 : (config.numBytes / 1e9);
     return `${(GB / seconds).toFixed(3)} GB/s`;
   },
+  get cpuPartTOTAL_bandwidth() {
+    const seconds = (
+      timing._mmapUploadBuffer_cpuTime.getMeanAndVariance().mean +
+      timing._cpuVerticalSlide_cpuTime.getMeanAndVariance().mean +
+      timing._unmapOrUpload_cpuTime.getMeanAndVariance().mean) / 1e3;
+    const GB = config.uploadMethod === 'none' ? 0 : (config.numBytes / 1e9);
+    return `${(GB / seconds).toFixed(3)} GB/s`;
+  },
+  _unmapReadback_cpuTime: new SmoothedTiming(), get unmapReadback_cpuTime() { return timing._unmapReadback_cpuTime.getMeanAndVarianceStr(); },
   _gpuHorizontalSlide_rtTime: new SmoothedTiming(), get gpuHorizontalSlide_rtTime() { return timing._gpuHorizontalSlide_rtTime.getMeanAndVarianceStr(); },
+  _noop_rtTime: new SmoothedTiming(), get noop_rtTime() { return timing._noop_rtTime.getMeanAndVarianceStr(); },
   _mapAsync_rtTime: new SmoothedTiming(), get mapAsync_rtTime() { return timing._mapAsync_rtTime.getMeanAndVarianceStr(); },
-  _download_cpuTime: new SmoothedTiming(), get download_cpuTime() { return timing._download_cpuTime.getMeanAndVarianceStr(); },
-  get download_bandwidth() {
-    const seconds = timing._download_cpuTime.getMeanAndVariance().mean / 1e3;
+  _mmapOrDownload_cpuTime: new SmoothedTiming(), get mmapOrDownload_cpuTime() { return timing._mmapOrDownload_cpuTime.getMeanAndVarianceStr(); },
+  get mmapOrDownload_bandwidth() {
+    if (config.downloadMethod === 'mmap') {
+      return '-';
+    }
+    const seconds = timing._mmapOrDownload_cpuTime.getMeanAndVariance().mean / 1e3;
     const GB = config.downloadMethod === 'none' ? 0 : (config.numBytes / 1e9);
     return `${(GB / seconds).toFixed(3)} GB/s`;
+  },
+  get gpuPartTOTALMinus2RT_bandwidth() {
+    const seconds = (
+      timing._unmapReadback_cpuTime.getMeanAndVariance().mean +
+      timing._gpuHorizontalSlide_rtTime.getMeanAndVariance().mean +
+      timing._mapAsync_rtTime.getMeanAndVariance().mean +
+      (-2 * timing._noop_rtTime.getMeanAndVariance().mean) +
+      timing._mmapOrDownload_cpuTime.getMeanAndVariance().mean) / 1e3;
+    const GB = config.downloadMethod === 'none' ? 0 : (config.numBytes / 1e9);
+    return `~ ${(GB / seconds).toFixed(3)} GB/s`;
   },
   _iter_time: new SmoothedTiming(), get iter_time() { return timing._iter_time.getMeanAndVarianceStr(); },
 };
 const fTiming = pane.addFolder({ title: 'Timing' });
 fTiming.addBlade({ view: 'separator' });
 fTiming.addBinding(timing, 'imageSize', { readonly: true });
-fTiming.addBinding(timing, 'mapUploadBuffer_cpuTime', { readonly: true });
+fTiming.addBlade({ view: 'separator' });
+fTiming.addBinding(timing, 'mmapUploadBuffer_cpuTime', { readonly: true });
 fTiming.addBinding(timing, 'cpuVerticalSlide_cpuTime', { readonly: true });
-fTiming.addBinding(timing, 'unmapReadback_cpuTime', { readonly: true });
 fTiming.addBinding(timing, 'unmapOrUpload_cpuTime', { readonly: true });
 fTiming.addBinding(timing, 'unmapOrUpload_bandwidth', { readonly: true });
+fTiming.addBinding(timing, 'cpuPartTOTAL_bandwidth', { readonly: true });
+fTiming.addBlade({ view: 'separator' });
+fTiming.addBinding(timing, 'unmapReadback_cpuTime', { readonly: true });
 fTiming.addBinding(timing, 'gpuHorizontalSlide_rtTime', { readonly: true });
+fTiming.addBinding(timing, 'noop_rtTime', { readonly: true });
 fTiming.addBinding(timing, 'mapAsync_rtTime', { readonly: true });
-fTiming.addBinding(timing, 'download_cpuTime', { readonly: true });
-fTiming.addBinding(timing, 'download_bandwidth', { readonly: true });
+fTiming.addBinding(timing, 'mmapOrDownload_cpuTime', { readonly: true });
+fTiming.addBinding(timing, 'mmapOrDownload_bandwidth', { readonly: true });
+fTiming.addBinding(timing, 'gpuPartTOTALMinus2RT_bandwidth', { readonly: true });
 fTiming.addBlade({ view: 'separator' });
 fTiming.addBinding(timing, 'iter_time', { readonly: true });
 

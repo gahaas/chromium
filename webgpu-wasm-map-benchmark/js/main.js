@@ -14,7 +14,7 @@ async function iteration() {
   const t = [];
   t.push(performance.now());
 
-  // 1a. Map
+  // 1a. Mmap
   let uploadBuffer;
   if (config.uploadMethod === 'mmap') {
     uploadBuffer = UploadPool.acquire();
@@ -31,11 +31,7 @@ async function iteration() {
   }
   t.push(performance.now());
 
-  // 2a. Unmap readbackBuffer
-  GPUPart.readbackBuffer.unmap();
-  t.push(performance.now());
-
-  // 2b. Unmap/upload uploadBuffer (CPU data2 -> GPU data1)
+  // 2. Unmap/upload uploadBuffer (CPU data2 -> GPU data1)
   const commandEncoder = device.createCommandEncoder();
   switch (config.uploadMethod) {
     case 'none':
@@ -65,7 +61,11 @@ async function iteration() {
   }
   t.push(performance.now());
 
-  // 3. GPU-side processing step (GPU data1 -> GPU data2)
+
+  // 3a. Unmap readbackBuffer
+  GPUPart.readbackBuffer.unmap();
+  t.push(performance.now());
+  // 3b. GPU-side processing step (GPU data1 -> GPU data2)
   //    (The output of this step is what's visible.)
   if (config.doGPUProcessing) {
     GPUPart.processImage(commandEncoder, frameNum);
@@ -78,6 +78,10 @@ async function iteration() {
     UploadPool.release(uploadBuffer);
   }
   // Note both of these operations "flush the pipeline" so we always only have one thing going on.
+  await device.queue.onSubmittedWorkDone();
+  t.push(performance.now());
+  // Do an extra round-trip to try to measure the overhead and remove it from the result.
+  device.queue.submit([device.createCommandEncoder().finish()]);
   await device.queue.onSubmittedWorkDone();
   t.push(performance.now());
   await GPUPart.readbackBuffer.mapAsync(GPUMapMode.READ);
@@ -105,13 +109,14 @@ async function iteration() {
   }
   t.push(performance.now());
 
-  timing._mapUploadBuffer_cpuTime.addSample(t[1] - t[0]);
+  timing._mmapUploadBuffer_cpuTime.addSample(t[1] - t[0]);
   timing._cpuVerticalSlide_cpuTime.addSample(t[2] - t[1]);
-  timing._unmapReadback_cpuTime.addSample(t[3] - t[2]);
-  timing._unmapOrUpload_cpuTime.addSample(t[4] - t[3]);
+  timing._unmapOrUpload_cpuTime.addSample(t[3] - t[2]);
+  timing._unmapReadback_cpuTime.addSample(t[4] - t[3]);
   timing._gpuHorizontalSlide_rtTime.addSample(t[5] - t[4]);
-  timing._mapAsync_rtTime.addSample(t[6] - t[5]);
-  timing._download_cpuTime.addSample(t[7] - t[6]);
+  timing._noop_rtTime.addSample(t[6] - t[5]);
+  timing._mapAsync_rtTime.addSample(t[7] - t[6]);
+  timing._mmapOrDownload_cpuTime.addSample(t[8] - t[7]);
 }
 
 let tLast = performance.now();
