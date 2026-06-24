@@ -1328,17 +1328,11 @@ WasmMemoryMapDescriptor::NewFromFileDescriptor(Isolate* isolate,
   return descriptor_object;
 }
 
-#define MODE_PERSISTENT 0
+#define MODE_PERSISTENT 1
+#define MODE_PERSISTENT_MPROTECT 1
 
 size_t WasmMemoryMapDescriptor::MapDescriptor(
     DirectHandle<WasmMemoryObject> memory, size_t offset) {
-#if MODE_PERSISTENT
-  static auto ah_size = new std::unordered_map<size_t, size_t>{};
-  if (auto it = ah_size->find(offset); it != ah_size->end()) {
-    return it->second;
-  }
-#endif
-
 #if V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID
   CHECK(v8_flags.experimental_wasm_memory_control);
   std::shared_ptr<BackingStore> backing_store = memory->backing_store();
@@ -1361,6 +1355,17 @@ size_t WasmMemoryMapDescriptor::MapDescriptor(
                GetArrayBufferPageAllocator()->AllocatePageSize(),
            0);
 
+#if MODE_PERSISTENT
+  static auto ah_size = new std::unordered_map<uintptr_t, size_t>{};
+  if (auto it = ah_size->find(reinterpret_cast<uintptr_t>(target)); it != ah_size->end()) {
+    size_t size = it->second;
+#if MODE_PERSISTENT_MPROTECT
+    mprotect(target, size, PROT_READ | PROT_WRITE);
+#endif  // MODE_PERSISTENT_MPROTECT
+    return size;
+  }
+#endif  // MODE_PERSISTENT
+
   struct stat stat_for_size;
   if (fstat(this->file_descriptor(), &stat_for_size) == -1) {
     // Could not determine file size.
@@ -1370,8 +1375,8 @@ size_t WasmMemoryMapDescriptor::MapDescriptor(
                         GetArrayBufferPageAllocator()->AllocatePageSize());
 
 #if MODE_PERSISTENT
-  ah_size->insert({offset, size});
-#endif
+  ah_size->insert({reinterpret_cast<uintptr_t>(target), size});
+#endif  // MODE_PERSISTENT
   if (size + offset < size) {
     // Overflow
     return 0;
@@ -1390,15 +1395,12 @@ size_t WasmMemoryMapDescriptor::MapDescriptor(
   CHECK_NE(ret_val, MAP_FAILED);
   CHECK_EQ(ret_val, target);
   return size;
-#else
+#else  // V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID
   return 0;
-#endif
+#endif  // V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID
 }
 
 bool WasmMemoryMapDescriptor::UnmapDescriptor() {
-#if MODE_PERSISTENT
-  return true;
-#else
 #if V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID
   CHECK(v8_flags.experimental_wasm_memory_control);
   DisallowGarbageCollection no_gc;
@@ -1423,6 +1425,14 @@ bool WasmMemoryMapDescriptor::UnmapDescriptor() {
   uint8_t* target =
       reinterpret_cast<uint8_t*>(backing_store->buffer_start()) + offset;
 
+#if MODE_PERSISTENT
+#if MODE_PERSISTENT_MPROTECT
+  mprotect(target, size, PROT_NONE);
+#endif  // MODE_PERSISTENT_MPROTECT
+  (void)target;
+  return true;
+#else  // MODE_PERSISTENT
+
   void* ret_val = mmap(target, size, PROT_READ | PROT_WRITE,
                        MAP_FIXED | MAP_SHARED | MAP_ANONYMOUS, -1, 0);
   printf("unmapped %u bytes at %p\n", size, ret_val);
@@ -1430,10 +1440,10 @@ bool WasmMemoryMapDescriptor::UnmapDescriptor() {
   CHECK_NE(ret_val, MAP_FAILED);
   CHECK_EQ(ret_val, target);
   return true;
-#else
+#endif  // MODE_PERSISTENT
+#else  // V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID
   return false;
-#endif
-#endif
+#endif  // V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID
 }
 
 // static
