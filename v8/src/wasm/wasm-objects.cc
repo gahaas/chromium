@@ -14,6 +14,7 @@
 #endif  // V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID
 
 #include <optional>
+#include <unordered_map>
 
 #include "src/base/iterator.h"
 #include "src/base/vector.h"
@@ -1327,12 +1328,17 @@ WasmMemoryMapDescriptor::NewFromFileDescriptor(Isolate* isolate,
   return descriptor_object;
 }
 
+#define MODE_PERSISTENT 0
+
 size_t WasmMemoryMapDescriptor::MapDescriptor(
     DirectHandle<WasmMemoryObject> memory, size_t offset) {
-  static size_t ah_size = 0;
-  if (ah_size) {
-    return ah_size;
+#if MODE_PERSISTENT
+  static auto ah_size = new std::unordered_map<size_t, size_t>{};
+  if (auto it = ah_size->find(offset); it != ah_size->end()) {
+    return it->second;
   }
+#endif
+
 #if V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID
   CHECK(v8_flags.experimental_wasm_memory_control);
   std::shared_ptr<BackingStore> backing_store = memory->backing_store();
@@ -1363,7 +1369,9 @@ size_t WasmMemoryMapDescriptor::MapDescriptor(
   size_t size = RoundUp(stat_for_size.st_size,
                         GetArrayBufferPageAllocator()->AllocatePageSize());
 
-  ah_size = size;
+#if MODE_PERSISTENT
+  ah_size->insert({offset, size});
+#endif
   if (size + offset < size) {
     // Overflow
     return 0;
@@ -1374,6 +1382,7 @@ size_t WasmMemoryMapDescriptor::MapDescriptor(
 
   void* ret_val = mmap(target, size, PROT_READ | PROT_WRITE,
                        MAP_FIXED | MAP_SHARED, this->file_descriptor(), 0);
+  printf(" mmapped %zu bytes at %p\n", size, ret_val);
   if (ret_val == MAP_FAILED) {
     v8::base::OS::PrintError("MMAP stat result: dev=%lu mode=%d rdev=%lu size=%zu", stat_for_size.st_dev, stat_for_size.st_mode, stat_for_size.st_rdev, stat_for_size.st_size);
     v8::base::OS::PrintError("MMAP mmap(%p, %zu, _, _, %d, _) error: %d %s", target, size, this->file_descriptor(), errno, strerror(errno));
@@ -1387,40 +1396,44 @@ size_t WasmMemoryMapDescriptor::MapDescriptor(
 }
 
 bool WasmMemoryMapDescriptor::UnmapDescriptor() {
+#if MODE_PERSISTENT
   return true;
-// #if V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID
-//   CHECK(v8_flags.experimental_wasm_memory_control);
-//   DisallowGarbageCollection no_gc;
-// 
-//   i::Tagged<i::WasmMemoryObject> memory =
-//       Cast<i::WasmMemoryObject>(MakeStrong(this->memory()));
-//   if (memory.is_null()) {
-//     return true;
-//   }
-//   uint32_t offset = this->offset();
-//   uint32_t size = this->size();
-//   std::shared_ptr<BackingStore> backing_store = memory->backing_store();
-// 
-//   // The following checks already passed during `MapDescriptor`, and they should
-//   // still pass.
-//   CHECK(!memory->is_memory64());
-//   CHECK(!backing_store->is_shared());
-//   CHECK_EQ(size % GetArrayBufferPageAllocator()->AllocatePageSize(), 0);
-//   CHECK_GE(size + offset, size);
-//   CHECK_LE(size + offset, backing_store->byte_length());
-// 
-//   uint8_t* target =
-//       reinterpret_cast<uint8_t*>(backing_store->buffer_start()) + offset;
-// 
-//   void* ret_val = mmap(target, size, PROT_READ | PROT_WRITE,
-//                        MAP_FIXED | MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-// 
-//   CHECK_NE(ret_val, MAP_FAILED);
-//   CHECK_EQ(ret_val, target);
-//   return true;
-// #else
-//   return false;
-// #endif
+#else
+#if V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID
+  CHECK(v8_flags.experimental_wasm_memory_control);
+  DisallowGarbageCollection no_gc;
+
+  i::Tagged<i::WasmMemoryObject> memory =
+      Cast<i::WasmMemoryObject>(MakeStrong(this->memory()));
+  if (memory.is_null()) {
+    return true;
+  }
+  uint32_t offset = this->offset();
+  uint32_t size = this->size();
+  std::shared_ptr<BackingStore> backing_store = memory->backing_store();
+
+  // The following checks already passed during `MapDescriptor`, and they should
+  // still pass.
+  CHECK(!memory->is_memory64());
+  CHECK(!backing_store->is_shared());
+  CHECK_EQ(size % GetArrayBufferPageAllocator()->AllocatePageSize(), 0);
+  CHECK_GE(size + offset, size);
+  CHECK_LE(size + offset, backing_store->byte_length());
+
+  uint8_t* target =
+      reinterpret_cast<uint8_t*>(backing_store->buffer_start()) + offset;
+
+  void* ret_val = mmap(target, size, PROT_READ | PROT_WRITE,
+                       MAP_FIXED | MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+  printf("unmapped %u bytes at %p\n", size, ret_val);
+
+  CHECK_NE(ret_val, MAP_FAILED);
+  CHECK_EQ(ret_val, target);
+  return true;
+#else
+  return false;
+#endif
+#endif
 }
 
 // static
