@@ -139,7 +139,7 @@ export const timing = {
     const GB = config.downloadMethod === 'none' ? 0 : (config.numBytes / 1e9);
     return `${(GB / seconds).toFixed(3)} GB/s`;
   },
-  get gpuPartTOTALMinus2RT_bandwidth() {
+  get gpuPartTOTALMinusRT_bandwidth() {
     const seconds = (
       timing._unmapReadback_cpuTime.getMeanAndVariance().mean +
       timing._gpuHorizontalSlide_rtTime.getMeanAndVariance().mean +
@@ -150,6 +150,13 @@ export const timing = {
     return `~ ${(GB / seconds).toFixed(3)} GB/s`;
   },
   _iter_time: new SmoothedTiming(), get iter_time() { return timing._iter_time.getMeanAndVarianceStr(); },
+  get allTOTALMinusRT_bandwidth() {
+    const seconds = (
+      timing._iter_time.getMeanAndVariance().mean +
+      (-3 * timing._noop_rtTime.getMeanAndVariance().mean)) / 1e3;
+    const GB = config.downloadMethod === 'none' ? 0 : (2 * config.numBytes / 1e9);
+    return `~ ${(GB / seconds).toFixed(3)} GB/s`;
+  },
 };
 const fTiming = pane.addFolder({ title: 'Timing' });
 fTiming.addBlade({ view: 'separator' });
@@ -167,9 +174,10 @@ fTiming.addBinding(timing, 'noop_rtTime', { readonly: true });
 fTiming.addBinding(timing, 'mapAsync_rtTime', { readonly: true });
 fTiming.addBinding(timing, 'mmapOrDownload_cpuTime', { readonly: true });
 fTiming.addBinding(timing, 'mmapOrDownload_bandwidth', { readonly: true });
-fTiming.addBinding(timing, 'gpuPartTOTALMinus2RT_bandwidth', { readonly: true });
+fTiming.addBinding(timing, 'gpuPartTOTALMinusRT_bandwidth', { readonly: true });
 fTiming.addBlade({ view: 'separator' });
 fTiming.addBinding(timing, 'iter_time', { readonly: true });
+fTiming.addBinding(timing, 'allTOTALMinusRT_bandwidth', { readonly: true });
 
 export function resetTiming() {
   for (const x of Object.values(timing)) {
