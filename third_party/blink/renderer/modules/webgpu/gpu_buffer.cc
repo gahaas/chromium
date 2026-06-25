@@ -298,7 +298,8 @@ v8::Local<v8::Value> GPUBuffer::getMMapDescriptor(
       shmRegion.shm->GetPlatformHandle();
 
 #if BUILDFLAG(IS_APPLE)
-#error "Not implemented"
+  auto mmap_descriptor =
+      v8::WasmMemoryMapDescriptor::New(script_state->GetIsolate(), handle);
 #elif BUILDFLAG(IS_FUCHSIA)
 #error "Not implemented"
 #elif BUILDFLAG(IS_WIN)

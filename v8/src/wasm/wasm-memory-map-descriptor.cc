@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#if V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID
+#if V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID || V8_TARGET_OS_MACOS
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -15,7 +15,12 @@
 // Since we don't need `sys/mman.h`'s `MAP_TYPE`, we undefine it immediately
 // after the `#include`.
 #undef MAP_TYPE
-#endif  // V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID
+#endif  // V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID || V8_TARGET_OS_MACOS
+
+#if V8_TARGET_OS_MACOS
+#include <mach/mach.h>
+#include <mach/vm_map.h>
+#endif  // V8_TARGET_OS_MACOS
 
 #include "include/cppgc/allocation.h"
 #include "include/v8-cppgc.h"
@@ -42,6 +47,11 @@ WasmMemoryMapDescriptor::~WasmMemoryMapDescriptor() {
   if (fd_ownership_ == FdOwnership::kAnonymousFdOwnedByV8 &&
       file_descriptor_ != -1) {
     close(file_descriptor_);
+  }
+#elif V8_TARGET_OS_MACOS
+  if (fd_ownership_ == FdOwnership::kAnonymousFdOwnedByV8 &&
+      file_descriptor_ != MACH_PORT_NULL) {
+    mach_port_deallocate(mach_task_self(), file_descriptor_);
   }
 #else
   USE(fd_ownership_);
@@ -89,7 +99,17 @@ v8::MaybeLocal<v8::Object> WasmMemoryMapDescriptor::NewFromAnonymous(
     return NewFromFileDescriptor(isolate, fd, length, wrapper,
                                  FdOwnership::kAnonymousFdOwnedByV8);
   }
-#endif  // V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID
+#elif V8_TARGET_OS_MACOS
+  mach_vm_size_t vm_size = length;
+  mach_port_t port = MACH_PORT_NULL;
+  kern_return_t kr = mach_make_memory_entry_64(
+      mach_task_self(), &vm_size, 0,
+      MAP_MEM_NAMED_CREATE | VM_PROT_READ | VM_PROT_WRITE, &port,
+      MACH_PORT_NULL);
+  if (kr != KERN_SUCCESS) return {};
+  return NewFromFileDescriptor(isolate, port, length, wrapper,
+                               FdOwnership::kAnonymousFdOwnedByV8);
+#endif  // V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID || V8_TARGET_OS_MACOS
   return {};
 }
 
@@ -104,7 +124,7 @@ size_t WasmMemoryMapDescriptor::Map(v8::Isolate* isolate,
     isolate->ThrowError("WasmMemoryMapDescriptor::Map called more than once");
     return 0;
   }
-#if V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID
+#if V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID || V8_TARGET_OS_MACOS
   std::shared_ptr<BackingStore> backing_store = memory->backing_store();
   if (backing_store->is_shared()) {
     // TODO(ahaas): Handle concurrent calls to `MapDescriptor`. To prevent
@@ -141,6 +161,7 @@ size_t WasmMemoryMapDescriptor::Map(v8::Isolate* isolate,
   }
 #endif  // MODE_PERSISTENT
 
+#if V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID
   struct stat stat_for_size;
   if (fstat(this->file_descriptor(), &stat_for_size) == -1) {
     // Could not determine file size.
@@ -148,6 +169,13 @@ size_t WasmMemoryMapDescriptor::Map(v8::Isolate* isolate,
   }
   size_t size = RoundUp(stat_for_size.st_size,
                         GetArrayBufferPageAllocator()->AllocatePageSize());
+#elif V8_TARGET_OS_MACOS
+  size_t size =
+      RoundUp(this->size(), GetArrayBufferPageAllocator()->AllocatePageSize());
+  if (size == 0) {
+    return 0;
+  }
+#endif
 
 #if MODE_PERSISTENT
   ah_size->insert({reinterpret_cast<uintptr_t>(target), size});
@@ -160,6 +188,7 @@ size_t WasmMemoryMapDescriptor::Map(v8::Isolate* isolate,
     return 0;
   }
 
+#if V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID
   void* ret_val = mmap(target, size, PROT_READ | PROT_WRITE,
                        MAP_FIXED | MAP_SHARED, this->file_descriptor(), 0);
   printf(" mmapped %zu bytes at %p\n", size, ret_val);
@@ -176,16 +205,31 @@ size_t WasmMemoryMapDescriptor::Map(v8::Isolate* isolate,
   }
   CHECK_NE(ret_val, MAP_FAILED);
   CHECK_EQ(ret_val, target);
+#elif V8_TARGET_OS_MACOS
+  mach_vm_address_t addr = reinterpret_cast<mach_vm_address_t>(target);
+  kern_return_t kr = mach_vm_map(
+      mach_task_self(), &addr, size, 0, VM_FLAGS_FIXED | VM_FLAGS_OVERWRITE,
+      this->file_descriptor(), 0, FALSE, VM_PROT_READ | VM_PROT_WRITE,
+      VM_PROT_READ | VM_PROT_WRITE, VM_INHERIT_NONE);
+  printf(" mmapped %zu bytes at %p\n", size, reinterpret_cast<void*>(addr));
+  if (kr != KERN_SUCCESS) {
+    v8::base::OS::PrintError("mach_vm_map(%p, %zu, _, _, %u, _) error: %d\n",
+                             target, size, this->file_descriptor(), kr);
+  }
+  CHECK_EQ(kr, KERN_SUCCESS);
+  CHECK_EQ(reinterpret_cast<void*>(addr), target);
+#endif
+
   mapped_memory_.Reset(isolate, Utils::ToLocal(memory));
   mapped_memory_.SetWeak();
   size_ = size;
   offset_ = offset;
   return size;
-#else   // V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID
+#else   // V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID || V8_TARGET_OS_MACOS
   USE(memory);
   USE(offset);
   return 0;
-#endif  // V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID
+#endif  // V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID || V8_TARGET_OS_MACOS
 }
 
 bool WasmMemoryMapDescriptor::Unmap(v8::Isolate* isolate) {
@@ -201,7 +245,7 @@ bool WasmMemoryMapDescriptor::Unmap(v8::Isolate* isolate) {
   }
   uint32_t offset = static_cast<uint32_t>(offset_);
   uint32_t size = static_cast<uint32_t>(size_);
-#if V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID
+#if V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID || V8_TARGET_OS_MACOS
   std::shared_ptr<BackingStore> backing_store = memory->backing_store();
 
   // The following checks already passed during `MapDescriptor`, and they should
@@ -221,8 +265,9 @@ bool WasmMemoryMapDescriptor::Unmap(v8::Isolate* isolate) {
 #endif  // MODE_PERSISTENT_MPROTECT
   (void)target;
   return true;
-#else   // MODE_PERSISTENT
+#else  // MODE_PERSISTENT
 
+#if V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID
   void* ret_val = mmap(target, size, PROT_READ | PROT_WRITE,
                        MAP_FIXED | MAP_SHARED | MAP_ANONYMOUS, -1, 0);
   printf("unmapped %u bytes at %p\n", size, ret_val);
@@ -230,10 +275,20 @@ bool WasmMemoryMapDescriptor::Unmap(v8::Isolate* isolate) {
   CHECK_NE(ret_val, MAP_FAILED);
   CHECK_EQ(ret_val, target);
   return true;
+#elif V8_TARGET_OS_MACOS
+  mach_vm_address_t addr = reinterpret_cast<mach_vm_address_t>(target);
+  kern_return_t kr = mach_vm_allocate(mach_task_self(), &addr, size,
+                                      VM_FLAGS_FIXED | VM_FLAGS_OVERWRITE);
+  printf("unmapped %u bytes at %p\n", size, reinterpret_cast<void*>(addr));
+  CHECK_EQ(kr, KERN_SUCCESS);
+  CHECK_EQ(reinterpret_cast<void*>(addr), target);
+  return true;
+#endif
+
 #endif  // MODE_PERSISTENT
-#else   // V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID
+#else   // V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID || V8_TARGET_OS_MACOS
   return false;
-#endif  // V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID
+#endif  // V8_TARGET_OS_LINUX || V8_TARGET_OS_ANDROID || V8_TARGET_OS_MACOS
 }
 
 }  // namespace v8::internal::wasm
