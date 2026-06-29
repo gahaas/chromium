@@ -1067,6 +1067,58 @@ class VirtualAddressSpace {
   virtual void FreeSharedPages(Address address, size_t size) = 0;
 
   /**
+   * Replaces the backing of an already-allocated sub-range of this address
+   * space with a mapping of the given shared memory object, in place.
+   *
+   * Unlike AllocateSharedPages, the range must already be owned (i.e. fully
+   * contained within a region previously returned by AllocatePages) and is not
+   * tracked as a new allocation; only its physical backing is swapped. This is
+   * used to map a shared memory object (e.g. a file mapping) into part of an
+   * existing reservation such as a WebAssembly memory.
+   *
+   * \param address The start address of the sub-range. Must be aligned to the
+   * allocation_granularity().
+   *
+   * \param size The size of the sub-range in bytes. Must be a multiple of the
+   * allocation_granularity().
+   *
+   * \param permissions The page permissions for the mapped range.
+   *
+   * \param handle A platform-specific handle to a shared memory object.
+   *
+   * \param offset The offset in the shared memory object at which the mapping
+   * should start. Must be a multiple of the allocation_granularity().
+   *
+   * \returns true on success, false on failure. The default implementation
+   * returns false, indicating that the operation is not supported.
+   */
+  virtual V8_WARN_UNUSED_RESULT bool MapSharedPagesInPlace(
+      Address address, size_t size, PagePermissions permissions,
+      SharedMemoryHandle handle, uint64_t offset) {
+    return false;
+  }
+
+  /**
+   * Restores a sub-range previously passed to MapSharedPagesInPlace back to
+   * private, zero-initialized pages with the given permissions, in place.
+   *
+   * \param address The start address of the sub-range. Must match an address
+   * previously passed to MapSharedPagesInPlace.
+   *
+   * \param size The size of the sub-range in bytes. Must match the size
+   * previously passed to MapSharedPagesInPlace.
+   *
+   * \param permissions The page permissions for the restored range.
+   *
+   * \returns true on success, false on failure. The default implementation
+   * returns false, indicating that the operation is not supported.
+   */
+  virtual V8_WARN_UNUSED_RESULT bool UnmapSharedPagesInPlace(
+      Address address, size_t size, PagePermissions permissions) {
+    return false;
+  }
+
+  /**
    * Memory protection key support.
    *
    * If supported by the hardware and operating system, virtual address spaces

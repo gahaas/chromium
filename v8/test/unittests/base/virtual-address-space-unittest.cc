@@ -4,6 +4,8 @@
 
 #include "src/base/virtual-address-space.h"
 
+#include <cstring>
+
 #include "src/base/emulated-virtual-address-subspace.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -131,6 +133,73 @@ void TestSharedPageAllocation(v8::VirtualAddressSpace* space) {
   OS::DestroySharedMemoryHandle(*handle);
 }
 
+void TestInPlaceSharedPageMapping(v8::VirtualAddressSpace* space) {
+  const size_t granularity = space->allocation_granularity();
+  const size_t size = 4 * granularity;
+
+  // Allocate a committed, writable region and fill it with a sentinel.
+  Address region =
+      space->AllocatePages(VirtualAddressSpace::kNoHint, size, granularity,
+                           PagePermissions::kReadWrite);
+  ASSERT_NE(kNullAddress, region);
+  memset(reinterpret_cast<void*>(region), 0xAB, size);
+
+  std::optional<SharedMemoryHandle> handle =
+      OS::CreateSharedMemoryHandleForTesting(granularity);
+  if (!handle.has_value()) {
+    space->FreePages(region, size);
+    return;
+  }
+
+  // Replace the second granularity-sized chunk in place with a view of the
+  // shared memory object.
+  const size_t offset = granularity;
+  Address target = region + offset;
+  if (!space->MapSharedPagesInPlace(target, granularity,
+                                    PagePermissions::kReadWrite, *handle, 0)) {
+    // The space does not support in-place shared mapping; nothing to test.
+    OS::DestroySharedMemoryHandle(*handle);
+    space->FreePages(region, size);
+    return;
+  }
+
+  // The mapped chunk is independent, zero-initialized storage; the neighbouring
+  // pages keep their sentinel value.
+  EXPECT_EQ(0u, *reinterpret_cast<uint32_t*>(target));
+  *reinterpret_cast<uint32_t*>(target) = 0x42424242;
+  EXPECT_EQ(0x42424242u, *reinterpret_cast<uint32_t*>(target));
+  EXPECT_EQ(0xABABABABu, *reinterpret_cast<uint32_t*>(region));
+  EXPECT_EQ(0xABABABABu,
+            *reinterpret_cast<uint32_t*>(region + offset + granularity));
+
+  // Restore the chunk to private, zero-initialized pages in place.
+  EXPECT_TRUE(space->UnmapSharedPagesInPlace(target, granularity,
+                                             PagePermissions::kReadWrite));
+  EXPECT_EQ(0u, *reinterpret_cast<uint32_t*>(target));
+  *reinterpret_cast<uint32_t*>(target) = 0x99999999;
+  EXPECT_EQ(0x99999999u, *reinterpret_cast<uint32_t*>(target));
+  EXPECT_EQ(0xABABABABu, *reinterpret_cast<uint32_t*>(region));
+  EXPECT_EQ(0xABABABABu,
+            *reinterpret_cast<uint32_t*>(region + offset + granularity));
+
+  // Freeing the whole, previously sub-divided region must succeed. On Windows
+  // this exercises the robust placeholder teardown in
+  // AddressSpaceReservation::Free.
+  space->FreePages(region, size);
+
+  // Now exercise teardown while a shared view is still mapped (no unmap). A
+  // separate region is used so the abandoned mapping is freed by FreePages.
+  Address region2 =
+      space->AllocatePages(VirtualAddressSpace::kNoHint, size, granularity,
+                           PagePermissions::kReadWrite);
+  ASSERT_NE(kNullAddress, region2);
+  ASSERT_TRUE(space->MapSharedPagesInPlace(
+      region2 + offset, granularity, PagePermissions::kReadWrite, *handle, 0));
+  space->FreePages(region2, size);
+
+  OS::DestroySharedMemoryHandle(*handle);
+}
+
 TEST(VirtualAddressSpaceTest, TestPagePermissionSubsets) {
   const PagePermissions kNoAccess = PagePermissions::kNoAccess;
   const PagePermissions kRead = PagePermissions::kRead;
@@ -199,6 +268,7 @@ TEST(VirtualAddressSpaceTest, TestSubspace) {
   TestPageAllocationAlignment(subspace.get());
   TestParentSpaceCannotAllocateInChildSpace(&rootspace, subspace.get());
   TestSharedPageAllocation(subspace.get());
+  TestInPlaceSharedPageMapping(subspace.get());
 
   // Test sub-subspaces
   if (!subspace->CanAllocateSubspaces()) return;
@@ -216,6 +286,7 @@ TEST(VirtualAddressSpaceTest, TestSubspace) {
   TestPageAllocationAlignment(subsubspace.get());
   TestParentSpaceCannotAllocateInChildSpace(subspace.get(), subsubspace.get());
   TestSharedPageAllocation(subsubspace.get());
+  TestInPlaceSharedPageMapping(subsubspace.get());
 }
 
 TEST(VirtualAddressSpaceTest, TestEmulatedSubspace) {

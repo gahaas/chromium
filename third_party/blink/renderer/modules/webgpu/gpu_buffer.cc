@@ -302,7 +302,8 @@ v8::Local<v8::Value> GPUBuffer::getMMapDescriptor(
 #elif BUILDFLAG(IS_FUCHSIA)
 #error "Not implemented"
 #elif BUILDFLAG(IS_WIN)
-#error "Not implemented"
+  auto mmap_descriptor =
+      v8::WasmMemoryMapDescriptor::New(script_state->GetIsolate(), handle);
 #elif BUILDFLAG(IS_ANDROID)
   auto mmap_descriptor =
       v8::WasmMemoryMapDescriptor::New(script_state->GetIsolate(), handle);

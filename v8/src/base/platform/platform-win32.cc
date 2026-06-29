@@ -1411,7 +1411,45 @@ bool AddressSpaceReservation::Allocate(void* address, size_t size,
 
 bool AddressSpaceReservation::Free(void* address, size_t size) {
   DCHECK(Contains(address, size));
-  return VirtualFree(address, size, MEM_RELEASE | MEM_PRESERVE_PLACEHOLDER);
+  // Fast path: the range is a single placeholder/allocation unit, which is the
+  // case for virtually all reservations.
+  if (VirtualFree(address, size, MEM_RELEASE | MEM_PRESERVE_PLACEHOLDER)) {
+    return true;
+  }
+  // The range may have been sub-divided in place (e.g. by MapSharedPagesInPlace
+  // replacing part of it with a file-mapping view, which leaves the region as
+  // several adjacent placeholder/mapping units). A single
+  // MEM_PRESERVE_PLACEHOLDER free spanning multiple units fails with
+  // ERROR_INVALID_PARAMETER. Recover by normalizing each unit back into a
+  // placeholder and then coalescing the whole span into a single placeholder.
+  if (GetLastError() != ERROR_INVALID_PARAMETER) return false;
+  if (!UnmapViewOfFile2) return false;
+
+  uint8_t* p = static_cast<uint8_t*>(address);
+  uint8_t* const end = p + size;
+  while (p < end) {
+    MEMORY_BASIC_INFORMATION mbi;
+    if (VirtualQuery(p, &mbi, sizeof(mbi)) == 0) return false;
+    void* unit = mbi.BaseAddress;
+    if (mbi.Type == MEM_MAPPED) {
+      // A mapped view: turn it back into a placeholder.
+      if (!UnmapViewOfFile2(GetCurrentProcess(), unit,
+                            MEM_PRESERVE_PLACEHOLDER)) {
+        return false;
+      }
+    } else {
+      // Committed or reserved private memory: release it back to a placeholder.
+      // If it is already a bare placeholder this fails with
+      // ERROR_INVALID_PARAMETER, which is benign.
+      if (!VirtualFree(unit, mbi.RegionSize,
+                       MEM_RELEASE | MEM_PRESERVE_PLACEHOLDER) &&
+          GetLastError() != ERROR_INVALID_PARAMETER) {
+        return false;
+      }
+    }
+    p = static_cast<uint8_t*>(unit) + mbi.RegionSize;
+  }
+  return VirtualFree(address, size, MEM_RELEASE | MEM_COALESCE_PLACEHOLDERS);
 }
 
 bool AddressSpaceReservation::AllocateShared(void* address, size_t size,

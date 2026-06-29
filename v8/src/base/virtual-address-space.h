@@ -126,6 +126,14 @@ class V8_BASE_EXPORT VirtualAddressSubspace : public VirtualAddressSpaceBase {
 
   void FreeSharedPages(Address address, size_t size) override;
 
+  bool MapSharedPagesInPlace(Address address, size_t size,
+                             PagePermissions permissions,
+                             SharedMemoryHandle handle,
+                             uint64_t offset) override;
+
+  bool UnmapSharedPagesInPlace(Address address, size_t size,
+                               PagePermissions permissions) override;
+
   std::optional<MemoryProtectionKeyId> ActiveMemoryProtectionKey() override;
 
   bool CanAllocateSubspaces() override { return true; }

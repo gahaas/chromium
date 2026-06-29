@@ -2159,7 +2159,11 @@
   'regress/regress-crbug-1041232': [SKIP],
   'regress/regress-crbug-1104608': [SKIP],
 
-  # WebAssembly memory control is only implemented on Linux so far.
+}],
+
+##############################################################################
+['system not in (linux, windows)', {
+  # WebAssembly memory control is only implemented on Linux and Windows so far.
   'wasm/memory-control': [SKIP],
 }],
 

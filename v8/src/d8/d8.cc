@@ -3320,6 +3320,54 @@ void Shell::CreateWasmMemoryMapDescriptor(
       static_cast<WasmMemoryMapDescriptor::WasmFileDescriptor>(file_descriptor);
   info.GetReturnValue().Set(v8::WasmMemoryMapDescriptor::New(isolate, wasm_fd));
 }
+#elif V8_TARGET_OS_WIN && V8_ENABLE_WEBASSEMBLY
+void Shell::CreateWasmMemoryMapDescriptor(
+    const v8::FunctionCallbackInfo<v8::Value>& info) {
+  Isolate* isolate = info.GetIsolate();
+  CHECK(i::v8_flags.experimental_wasm_memory_control);
+  DCHECK(i::ValidateCallbackInfo(info));
+  String::Utf8Value file_name(isolate, info[0]);
+  if (*file_name == nullptr) {
+    ThrowError(isolate, "Error converting filename to string");
+    return;
+  }
+
+  // Back the descriptor with an anonymous (pagefile-backed) file mapping that
+  // is initialized with the file's content. Using an anonymous mapping rather
+  // than a file-backed one keeps the section writable (as required by Map)
+  // without needing write access to the source file.
+  base::OwnedVector<char> data = ReadChars(*file_name);
+  if (data.empty()) {
+    ThrowError(isolate, "Error reading file");
+    return;
+  }
+
+  // The section must be a multiple of the allocation granularity (64 KB on
+  // Windows) so that it can be mapped at that granularity by Map(); the bytes
+  // past the file content stay zero-initialized.
+  size_t granularity = i::AllocatePageSize();
+  size_t section_size = (data.size() + granularity - 1) & ~(granularity - 1);
+  HANDLE section = CreateFileMappingW(
+      INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE,
+      static_cast<DWORD>(static_cast<uint64_t>(section_size) >> 32),
+      static_cast<DWORD>(section_size & 0xFFFFFFFF), nullptr);
+  if (section == nullptr) {
+    ThrowError(isolate, "Error creating file mapping");
+    return;
+  }
+  void* view = MapViewOfFile(section, FILE_MAP_WRITE, 0, 0, section_size);
+  if (view == nullptr) {
+    CloseHandle(section);
+    ThrowError(isolate, "Error mapping file mapping view");
+    return;
+  }
+  memcpy(view, data.data(), data.size());
+  UnmapViewOfFile(view);
+
+  WasmMemoryMapDescriptor::WasmFileDescriptor wasm_fd =
+      static_cast<WasmMemoryMapDescriptor::WasmFileDescriptor>(section);
+  info.GetReturnValue().Set(v8::WasmMemoryMapDescriptor::New(isolate, wasm_fd));
+}
 #endif  // V8_TARGET_OS_LINUX
 
 MaybeLocal<String> Shell::ReadFromStdin(Isolate* isolate) {
@@ -4399,7 +4447,7 @@ Local<ObjectTemplate> Shell::CreateD8Template(Isolate* isolate) {
                        FunctionTemplate::New(isolate, Shell::ReadFile));
     file_template->Set(isolate, "execute",
                        FunctionTemplate::New(isolate, Shell::ExecuteFile));
-#if V8_TARGET_OS_LINUX && V8_ENABLE_WEBASSEMBLY
+#if (V8_TARGET_OS_LINUX || V8_TARGET_OS_WIN) && V8_ENABLE_WEBASSEMBLY
     if (i::v8_flags.experimental_wasm_memory_control) {
       file_template->Set(
           isolate, "create_wasm_memory_map_descriptor",

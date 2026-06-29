@@ -381,6 +381,78 @@ void VirtualAddressSubspace::FreeSharedPages(Address address, size_t size) {
   }
 }
 
+bool VirtualAddressSubspace::MapSharedPagesInPlace(Address address, size_t size,
+                                                   PagePermissions permissions,
+                                                   SharedMemoryHandle handle,
+                                                   uint64_t offset) {
+#ifdef V8_OS_WIN
+  DCHECK(IsAligned(address, allocation_granularity()));
+  DCHECK(IsAligned(size, allocation_granularity()));
+  DCHECK(IsAligned(offset, allocation_granularity()));
+  DCHECK(IsSubset(permissions, max_page_permissions()));
+
+  MutexGuard guard(&mutex_);
+
+  // The range must already be owned within this subspace: we only swap its
+  // backing in place, so we intentionally do not touch the region allocator.
+  if (!reservation_.Contains(reinterpret_cast<void*>(address), size)) {
+    return false;
+  }
+
+  // On Windows a file-mapping view can only replace a placeholder, so split the
+  // sub-range out of the surrounding (committed) mapping first.
+  if (!reservation_.SplitPlaceholder(reinterpret_cast<void*>(address), size)) {
+    return false;
+  }
+  if (!reservation_.AllocateShared(reinterpret_cast<void*>(address), size,
+                                   ToMemoryPermission(permissions), handle,
+                                   offset)) {
+    // Roll back the split by restoring committed pages into the placeholder so
+    // the enclosing region can still be freed as before.
+    CHECK(reservation_.Allocate(reinterpret_cast<void*>(address), size,
+                                ToMemoryPermission(permissions)));
+    return false;
+  }
+  return true;
+#else
+  // In-place shared mapping into a sub-range of an owned region is only
+  // implemented on Windows, where it is required because a file-mapping view
+  // cannot overlay committed memory. On POSIX, callers replace the backing
+  // directly with mmap(MAP_FIXED) instead, so this is intentionally
+  // unsupported here.
+  return false;
+#endif  // V8_OS_WIN
+}
+
+bool VirtualAddressSubspace::UnmapSharedPagesInPlace(
+    Address address, size_t size, PagePermissions permissions) {
+#ifdef V8_OS_WIN
+  DCHECK(IsAligned(address, allocation_granularity()));
+  DCHECK(IsAligned(size, allocation_granularity()));
+  DCHECK(IsSubset(permissions, max_page_permissions()));
+
+  MutexGuard guard(&mutex_);
+
+  if (!reservation_.Contains(reinterpret_cast<void*>(address), size)) {
+    return false;
+  }
+
+  // Turn the shared view back into a placeholder and re-commit fresh (zeroed)
+  // private pages into it.
+  if (!reservation_.FreeShared(reinterpret_cast<void*>(address), size)) {
+    return false;
+  }
+  if (!reservation_.Allocate(reinterpret_cast<void*>(address), size,
+                             ToMemoryPermission(permissions))) {
+    return false;
+  }
+  return true;
+#else
+  // Only implemented on Windows; see MapSharedPagesInPlace.
+  return false;
+#endif  // V8_OS_WIN
+}
+
 std::unique_ptr<v8::VirtualAddressSpace>
 VirtualAddressSubspace::AllocateSubspace(
     Address hint, size_t size, size_t alignment,
